@@ -22,6 +22,7 @@ import argparse
 from utils import parse_list_arg
 from dotenv import load_dotenv
 
+
 class TianshuLauncher:
     """天枢服务启动器"""
 
@@ -283,8 +284,6 @@ class TianshuLauncher:
 
 def main():
     """主函数"""
-    
-    # 加载 .env 环境变量（在 backend 目录下）
     env_path = Path(__file__).parent / ".env"
     if env_path.exists():
         load_dotenv(dotenv_path=env_path)

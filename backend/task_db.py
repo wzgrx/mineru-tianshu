@@ -21,11 +21,12 @@ from loguru import logger
 
 # 导入 Redis 队列（可选）
 try:
-    from redis_queue import get_redis_queue, RedisTaskQueue
+    from redis_queue import get_redis_queue
     REDIS_QUEUE_AVAILABLE = True
 except ImportError:
     REDIS_QUEUE_AVAILABLE = False
-    get_redis_queue = lambda: None
+    def get_redis_queue():
+        return None
 
 
 class TaskDB:

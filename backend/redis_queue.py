@@ -14,7 +14,7 @@ MinerU Tianshu - Redis Task Queue
 import os
 import time
 import json
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 from dataclasses import dataclass
 from loguru import logger
 

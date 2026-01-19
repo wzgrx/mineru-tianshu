@@ -727,7 +727,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                 gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES", "?")
                 logger.info(f"✅ MinerU Pipeline engine loaded on cuda:0 (physical GPU {gpu_id})")
             else:
-                logger.info(f"✅ MinerU Pipeline engine loaded on CPU")
+                logger.info("✅ MinerU Pipeline engine loaded on CPU")
 
         # 设置输出目录
         output_dir = Path(self.output_dir) / Path(file_path).stem
@@ -834,20 +834,16 @@ class MinerUWorkerAPI(ls.LitAPI):
                 # 在临时目录执行转换
                 cmd = [
                     "libreoffice",
-                    "--headless",           # 无界面模式
-                    "--convert-to", "pdf",  # 转换为 PDF
-                    "--outdir", str(temp_dir_path),  # 输出到临时目录
-                    str(temp_input)         # 输入文件
+                    "--headless",  # 无界面模式
+                    "--convert-to",
+                    "pdf",  # 转换为 PDF
+                    "--outdir",
+                    str(temp_dir_path),  # 输出到临时目录
+                    str(temp_input),  # 输入文件
                 ]
 
                 # 执行转换（超时 120 秒）
-                result = subprocess.run(
-                    cmd,
-                    check=True,
-                    timeout=120,
-                    capture_output=True,
-                    text=True
-                )
+                result = subprocess.run(cmd, check=True, timeout=120, capture_output=True, text=True)
 
                 # 临时输出文件路径
                 temp_pdf = temp_dir_path / f"{input_file.stem}.pdf"
@@ -856,14 +852,15 @@ class MinerUWorkerAPI(ls.LitAPI):
                 if not temp_pdf.exists():
                     stderr_output = result.stderr if result.stderr else "No error output"
                     raise RuntimeError(
-                        f"LibreOffice conversion failed: output file not found: {temp_pdf}\n"
-                        f"stderr: {stderr_output}"
+                        f"LibreOffice conversion failed: output file not found: {temp_pdf}\nstderr: {stderr_output}"
                     )
 
                 # 移动转换后的 PDF 到最终目录
                 shutil.move(str(temp_pdf), str(final_pdf_file))
 
-                logger.info(f"✅ Office converted to PDF: {final_pdf_file.name} ({final_pdf_file.stat().st_size / 1024:.1f} KB)")
+                logger.info(
+                    f"✅ Office converted to PDF: {final_pdf_file.name} ({final_pdf_file.stat().st_size / 1024:.1f} KB)"
+                )
 
                 return str(final_pdf_file)
 
@@ -955,7 +952,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                 gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES", "?")
                 logger.info(f"✅ SenseVoice engine loaded on cuda:0 (physical GPU {gpu_id})")
             else:
-                logger.info(f"✅ SenseVoice engine loaded on CPU")
+                logger.info("✅ SenseVoice engine loaded on CPU")
 
         # 设置输出目录
         output_dir = Path(self.output_dir) / Path(file_path).stem
@@ -999,7 +996,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                 gpu_id = os.environ.get("CUDA_VISIBLE_DEVICES", "?")
                 logger.info(f"✅ Video processing engine loaded on cuda:0 (physical GPU {gpu_id})")
             else:
-                logger.info(f"✅ Video processing engine loaded on CPU")
+                logger.info("✅ Video processing engine loaded on CPU")
 
         # 创建输出目录（与其他引擎保持一致）
         output_dir = Path(self.output_dir) / Path(file_path).stem
@@ -1241,7 +1238,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                     markdown_parts.append(content)
 
                     logger.info(
-                        f"   ✅ Merged chunk {idx+1}/{len(children)}: "
+                        f"   ✅ Merged chunk {idx + 1}/{len(children)}: "
                         f"pages {chunk_info.get('start_page', '?')}-{chunk_info.get('end_page', '?')}"
                     )
 
@@ -1268,7 +1265,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                                     page["page_number"] += page_offset
                                 json_pages.append(page)
                     except Exception as json_e:
-                        logger.warning(f"⚠️  Failed to merge JSON for chunk {idx+1}: {json_e}")
+                        logger.warning(f"⚠️  Failed to merge JSON for chunk {idx + 1}: {json_e}")
 
             # 保存合并后的 Markdown
             merged_md = "".join(markdown_parts)

@@ -1,282 +1,189 @@
 @echo off
-REM Tianshu - Docker Quick Setup for Windows
-REM Quick deployment script for Windows users
+REM Tianshu - Docker Quick Setup for Windows 11 (WSL2 Edition)
+REM Optimized for RTX 5090 & Ubuntu-24.04
 
 setlocal enabledelayedexpansion
 
-echo ========================================
-echo    Tianshu Docker Setup Script
-echo ========================================
+echo ===================================================
+echo    Tianshu Deployment Script (WSL2 Bridge Mode)
+echo ===================================================
 echo.
 
-REM Switch to project root directory
+REM 1. 切换到项目根目录
 cd /d "%~dp0\.."
 
+REM 2. 设置 WSL 发行版名称 (必须与您安装的一致)
+set WSL_DISTRO=Ubuntu-24.04
+set WSL_CMD=wsl -d %WSL_DISTRO%
+
 REM ============================================================================
-REM Check Docker
+REM 环境检查
 REM ============================================================================
-:check_docker
-echo [INFO] Checking Docker...
-docker --version >nul 2>&1
+:check_wsl
+echo [INFO] Checking WSL environment (%WSL_DISTRO%)...
+wsl -l -v | findstr "%WSL_DISTRO%" >nul
 if errorlevel 1 (
-    echo [ERROR] Docker is not installed or not running
-    echo [INFO] Please install Docker Desktop first: https://www.docker.com/products/docker-desktop
+    echo [ERROR] WSL Distro '%WSL_DISTRO%' not found!
+    echo [INFO] Please run: wsl --install -d %WSL_DISTRO%
     pause
     exit /b 1
 )
-echo [OK] Docker is installed
+echo [OK] WSL Distro found
 
-REM Check Docker Compose
-docker-compose --version >nul 2>&1
+echo [INFO] Checking Docker inside WSL...
+%WSL_CMD% docker --version >nul 2>&1
 if errorlevel 1 (
-    docker compose version >nul 2>&1
-    if errorlevel 1 (
-        echo [ERROR] Docker Compose is not installed
-        pause
-        exit /b 1
-    )
-    set COMPOSE_CMD=docker compose
-) else (
-    set COMPOSE_CMD=docker-compose
+    echo [ERROR] Docker not found inside WSL!
+    echo [INFO] Please enable 'WSL Integration' in Docker Desktop Settings.
+    pause
+    exit /b 1
 )
-echo [OK] Docker Compose is installed
-echo.
+echo [OK] Docker is ready inside WSL
 
-REM ============================================================================
-REM Check NVIDIA GPU
-REM ============================================================================
-:check_gpu
-echo [INFO] Checking GPU support...
-nvidia-smi >nul 2>&1
+echo [INFO] Checking GPU (RTX 5090)...
+%WSL_CMD% nvidia-smi >nul 2>&1
 if errorlevel 1 (
-    echo [WARNING] NVIDIA GPU not detected, will run in CPU mode
+    echo [WARNING] NVIDIA Driver not detected in WSL!
+    echo [INFO] Ensure you have installed NVIDIA Drivers on Windows.
 ) else (
-    echo [OK] NVIDIA GPU detected
-    nvidia-smi
+    echo [OK] GPU detected inside WSL
 )
 echo.
 
 REM ============================================================================
-REM Main Menu
+REM 菜单
 REM ============================================================================
 :menu
 echo.
 echo ========================================
-echo    Select Deployment Option
+echo    Select Deployment Option (WSL2)
 echo ========================================
 echo.
-echo   1. Full Deployment (Setup + Build + Start)
+echo   1. Full Deployment (Build + Start)
 echo   2. Start Services (Production)
-echo   3. Start Services (Development)
-echo   4. Stop All Services
-echo   5. Restart Services
-echo   6. View Service Status
-echo   7. View Logs
-echo   8. Clean All Data
+echo   3. Stop All Services
+echo   4. View Logs (Backend)
+echo   5. View Logs (Worker)
+echo   6. Enter WSL Shell
+echo   7. Create Model Directories (D Drive)
 echo   0. Exit
 echo.
-set /p choice="Please enter option [0-8]: "
+set /p choice="Please enter option [0-7]: "
 
 if "%choice%"=="1" goto full_setup
 if "%choice%"=="2" goto start_prod
-if "%choice%"=="3" goto start_dev
-if "%choice%"=="4" goto stop
-if "%choice%"=="5" goto restart
-if "%choice%"=="6" goto status
-if "%choice%"=="7" goto logs
-if "%choice%"=="8" goto clean
+if "%choice%"=="3" goto stop
+if "%choice%"=="4" goto logs_backend
+if "%choice%"=="5" goto logs_worker
+if "%choice%"=="6" goto shell
+if "%choice%"=="7" goto init_dirs
 if "%choice%"=="0" goto end
 echo [ERROR] Invalid option
 goto menu
 
 REM ============================================================================
-REM Full Deployment
+REM 1. 全量部署
 REM ============================================================================
 :full_setup
 echo.
-echo [INFO] Starting full deployment...
-echo.
+echo [INFO] Starting full deployment in WSL...
 
-REM Configure environment variables
+REM 检查 .env
 if not exist .env (
     if exist .env.example (
-        echo [INFO] Creating .env file...
+        echo [INFO] Creating .env file from example...
         copy .env.example .env >nul
-        echo [OK] .env file created
-        echo [WARNING] Please edit .env file, especially JWT_SECRET_KEY
+        echo [WARNING] Default .env created. Please edit it for RTX 5090 config!
         pause
-    ) else (
-        echo [ERROR] .env.example file does not exist
-        pause
-        goto end
     )
-) else (
-    echo [OK] .env file already exists
 )
 
-REM Create necessary directories
-echo [INFO] Creating directory structure...
-if not exist models mkdir models
-if not exist data\uploads mkdir data\uploads
-if not exist data\output mkdir data\output
-if not exist data\db mkdir data\db
-if not exist logs\backend mkdir logs\backend
-if not exist logs\worker mkdir logs\worker
-if not exist logs\mcp mkdir logs\mcp
-echo [OK] Directory structure created
+REM 确保 D 盘模型目录存在 (对应 docker-compose.yml 中的 /mnt/d/...)
+call :create_dirs
 
-REM Build images
-echo.
-echo [INFO] Building Docker images (first run may take 10-30 minutes)...
-echo [INFO] Using BuildKit cache optimization to avoid redundant downloads on subsequent builds
-echo [INFO] Please wait patiently...
+REM 在 WSL 中构建
+echo [INFO] Building images in WSL (BuildKit enabled)...
+REM 使用 Linux 语法设置环境变量并执行构建
+%WSL_CMD% bash -c "export DOCKER_BUILDKIT=1 && docker compose build"
 
-REM 启用 BuildKit 缓存挂载，避免重复下载大文件
-set DOCKER_BUILDKIT=1
-set COMPOSE_DOCKER_CLI_BUILD=1
-
-%COMPOSE_CMD% build --parallel
 if errorlevel 1 (
-    echo [ERROR] Image build failed
+    echo [ERROR] Build failed inside WSL.
     pause
-    goto end
-)
-echo [OK] Image build completed
-echo [INFO] Tip: Subsequent builds will use cache and be much faster
-
-REM Start services
-echo.
-echo [INFO] Starting services...
-%COMPOSE_CMD% up -d
-if errorlevel 1 (
-    echo [ERROR] Service startup failed
-    pause
-    goto end
+    goto menu
 )
 
-echo.
-echo [OK] Waiting for services to be ready...
-timeout /t 10 /nobreak >nul
+REM 启动服务
+echo [INFO] Starting services in WSL...
+%WSL_CMD% docker compose up -d
 
-goto show_info
+echo.
+echo [OK] Services started! 
+echo      API: http://localhost:8000
+echo      Worker: http://localhost:8001
+timeout /t 5 >nul
+goto menu
 
 REM ============================================================================
-REM Start Production Environment
+REM 2. 仅启动
 REM ============================================================================
 :start_prod
-echo [INFO] Starting production environment...
-%COMPOSE_CMD% up -d
-if errorlevel 1 (
-    echo [ERROR] Service startup failed
-    pause
-    goto menu
-)
-goto show_info
+echo [INFO] Starting services...
+%WSL_CMD% docker compose up -d
+goto menu
 
 REM ============================================================================
-REM Start Development Environment
-REM ============================================================================
-:start_dev
-echo [INFO] Starting development environment...
-%COMPOSE_CMD% -f docker-compose.dev.yml up -d
-if errorlevel 1 (
-    echo [ERROR] Service startup failed
-    pause
-    goto menu
-)
-goto show_info
-
-REM ============================================================================
-REM Stop Services
+REM 3. 停止服务
 REM ============================================================================
 :stop
 echo [INFO] Stopping services...
-%COMPOSE_CMD% down
-echo [OK] Services stopped
-pause
+%WSL_CMD% docker compose down
+echo [OK] Stopped.
 goto menu
 
 REM ============================================================================
-REM Restart Services
+REM 4/5. 查看日志
 REM ============================================================================
-:restart
-echo [INFO] Restarting services...
-%COMPOSE_CMD% restart
-echo [OK] Services restarted
-pause
+:logs_backend
+echo [INFO] Tailing Backend logs (Ctrl+C to exit)...
+%WSL_CMD% docker compose logs -f backend
+goto menu
+
+:logs_worker
+echo [INFO] Tailing Worker logs (Ctrl+C to exit)...
+%WSL_CMD% docker compose logs -f worker
 goto menu
 
 REM ============================================================================
-REM View Status
+REM 6. 进入 WSL 终端
 REM ============================================================================
-:status
-echo [INFO] Service status:
-echo.
-%COMPOSE_CMD% ps
-echo.
-pause
+:shell
+echo [INFO] Entering WSL shell...
+wsl -d %WSL_DISTRO%
 goto menu
 
 REM ============================================================================
-REM View Logs
+REM 7. 初始化目录 (辅助功能)
 REM ============================================================================
-:logs
-echo [INFO] Viewing logs (Press Ctrl+C to exit)...
-%COMPOSE_CMD% logs -f
-goto menu
+:init_dirs
+:create_dirs
+echo [INFO] Creating local data directories...
+if not exist data\uploads mkdir data\uploads
+if not exist data\output mkdir data\output
+if not exist data\db mkdir data\db
+if not exist logs mkdir logs
+
+echo [INFO] Creating D: drive model directories (for WSL mounting)...
+REM 这里对应 docker-compose.yml 里的 /mnt/d/aiworkspace/models
+if not exist "D:\aiworkspace\models\mineru" mkdir "D:\aiworkspace\models\mineru"
+if not exist "D:\aiworkspace\models\paddlex" mkdir "D:\aiworkspace\models\paddlex"
+if not exist "D:\aiworkspace\models\huggingface" mkdir "D:\aiworkspace\models\huggingface"
+if not exist "D:\aiworkspace\models\modelscope" mkdir "D:\aiworkspace\models\modelscope"
+echo [OK] Directories ready.
+if "%1"=="" pause & goto menu
+exit /b
 
 REM ============================================================================
-REM Clean Data
-REM ============================================================================
-:clean
-echo.
-echo [WARNING] This operation will delete all data (including database, uploaded files, models)
-set /p confirm="Confirm deletion? (yes/no): "
-if /i not "%confirm%"=="yes" (
-    echo [INFO] Operation cancelled
-    pause
-    goto menu
-)
-
-echo [INFO] Cleaning data...
-%COMPOSE_CMD% down -v
-rmdir /s /q data 2>nul
-rmdir /s /q logs 2>nul
-rmdir /s /q models 2>nul
-echo [OK] Data cleaned
-pause
-goto menu
-
-REM ============================================================================
-REM Show Access Information
-REM ============================================================================
-:show_info
-echo.
-echo ==========================================
-echo      Tianshu Deployment Complete!
-echo ==========================================
-echo.
-echo [INFO] Service access addresses:
-echo   - Frontend:      http://localhost:80
-echo   - API Docs:      http://localhost:8000/docs
-echo   - Worker:        http://localhost:8001
-echo   - MCP:           http://localhost:8002
-echo.
-echo [INFO] Common commands:
-echo   - View logs:      docker-compose logs -f
-echo   - Stop services: docker-compose down
-echo   - Restart:       docker-compose restart
-echo   - View status:   docker-compose ps
-echo.
-echo [WARNING] On first run, models will be automatically downloaded, this may take some time
-echo [WARNING] Default admin account needs to be created via registration page
-echo.
-pause
-goto menu
-
-REM ============================================================================
-REM Exit
+REM 退出
 REM ============================================================================
 :end
-echo [INFO] Exiting
 exit /b 0

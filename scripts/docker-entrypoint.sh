@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tianshu - Docker Entrypoint Script
-# Container startup script for initialization and health checks
+# Smart Model Management for RTX 5090 (Auto-Download & Config)
 
 set -e
 
@@ -18,7 +18,7 @@ log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # ============================================================================
-# Environment check
+# 1. 基础环境检查
 # ============================================================================
 check_environment() {
     local service_type=$1
@@ -41,7 +41,7 @@ check_environment() {
 }
 
 # ============================================================================
-# Directory initialization
+# 2. 目录初始化
 # ============================================================================
 initialize_directories() {
     log_info "Initializing directory structure..."
@@ -54,7 +54,7 @@ initialize_directories() {
 }
 
 # ============================================================================
-# Smart Model Management (核心修改：自动检测与下载)
+# 3. 智能模型管理 (核心逻辑：检测 -> 下载 -> 配置)
 # ============================================================================
 manage_models() {
     log_info "Starting Smart Model Management..."
@@ -62,36 +62,36 @@ manage_models() {
     # 容器内挂载点 (对应宿主机 D:\aiworkspace\models\mineru)
     MINERU_DIR="/app/models/mineru"
     
-    # 确保目录存在 (Docker挂载会自动创建，但为了保险)
+    # 确保目录存在
     if [ ! -d "$MINERU_DIR" ]; then
         mkdir -p "$MINERU_DIR"
     fi
 
     # ---------------------------------------------------------
-    # 1. 检测现有模型 (支持多种层级结构)
+    # A. 检测现有模型 (支持多种目录层级结构)
     # ---------------------------------------------------------
     MODEL_READY=false
     FINAL_MODEL_PATH=""
 
-    # 检查路径 A: .../PDF-Extract-Kit-1.0/models/Layout/...
+    # 路径策略 1: 标准目录结构 (D:\...\mineru\PDF-Extract-Kit-1.0\models\Layout\...)
     if [ -f "$MINERU_DIR/PDF-Extract-Kit-1.0/models/Layout/doclayout_yolo/best.pt" ]; then
         FINAL_MODEL_PATH="$MINERU_DIR/PDF-Extract-Kit-1.0/models"
         MODEL_READY=true
         log_success "Found models in sub-directory: $FINAL_MODEL_PATH"
         
-    # 检查路径 B: .../opendatalab/PDF-Extract-Kit-1.0/models/Layout/... (ModelScope 默认结构)
+    # 路径策略 2: ModelScope 缓存结构 (opendatalab/...)
     elif [ -f "$MINERU_DIR/opendatalab/PDF-Extract-Kit-1.0/models/Layout/doclayout_yolo/best.pt" ]; then
         FINAL_MODEL_PATH="$MINERU_DIR/opendatalab/PDF-Extract-Kit-1.0/models"
         MODEL_READY=true
         log_success "Found models in ModelScope cache dir: $FINAL_MODEL_PATH"
 
-    # 检查路径 C: .../models/Layout/... (直接解压)
+    # 路径策略 3: 直接解压结构 (D:\...\mineru\models\Layout\...)
     elif [ -f "$MINERU_DIR/models/Layout/doclayout_yolo/best.pt" ]; then
         FINAL_MODEL_PATH="$MINERU_DIR/models"
         MODEL_READY=true
         log_success "Found models in models dir: $FINAL_MODEL_PATH"
         
-    # 检查路径 D: .../Layout/... (完全扁平)
+    # 路径策略 4: 扁平结构 (D:\...\mineru\Layout\...)
     elif [ -f "$MINERU_DIR/Layout/doclayout_yolo/best.pt" ]; then
         FINAL_MODEL_PATH="$MINERU_DIR"
         MODEL_READY=true
@@ -99,26 +99,27 @@ manage_models() {
     fi
 
     # ---------------------------------------------------------
-    # 2. 如果没找到，自动下载 (ModelScope)
+    # B. 如果没找到模型，执行自动下载 (使用 ModelScope)
     # ---------------------------------------------------------
     if [ "$MODEL_READY" = false ]; then
         log_warning "Models missing in $MINERU_DIR"
         log_info "🚀 Starting auto-download from ModelScope (China)..."
+        log_info "Target Directory: $MINERU_DIR (Mapped to D:\aiworkspace\models\mineru)"
         
-        # 使用 Python 调用 modelscope 下载
+        # 使用 Python 调用 modelscope 下载，cache_dir 指向挂载目录
         python3 -c "
 import os
 try:
     from modelscope.hub.snapshot_download import snapshot_download
-    print('Downloading PDF-Extract-Kit-1.0 to $MINERU_DIR ...')
+    print('Downloading PDF-Extract-Kit-1.0...')
     # cache_dir 指定为挂载目录，这样会下载到 D 盘
     path = snapshot_download('opendatalab/PDF-Extract-Kit-1.0', cache_dir='$MINERU_DIR')
     print(f'Download success: {path}')
 except ImportError:
-    print('ModelScope library not found!')
+    print('Error: ModelScope library not found!')
     exit(1)
 except Exception as e:
-    print(f'Download failed: {e}')
+    print(f'Error: Download failed: {e}')
     exit(1)
 "
         if [ $? -eq 0 ]; then
@@ -130,7 +131,7 @@ except Exception as e:
                 # 暴力搜索 best.pt 重新定位
                 FOUND=$(find "$MINERU_DIR" -name "best.pt" | grep "doclayout_yolo" | head -n 1)
                 if [ -n "$FOUND" ]; then
-                    # ../../.. 回退到 models 目录
+                    # 回退到 models 目录
                     FINAL_MODEL_PATH=$(dirname $(dirname $(dirname "$FOUND")))
                 fi
             fi
@@ -144,11 +145,11 @@ except Exception as e:
     fi
 
     # ---------------------------------------------------------
-    # 3. 生成配置文件
+    # C. 生成配置文件 magic-pdf.json
     # ---------------------------------------------------------
     if [ -z "$FINAL_MODEL_PATH" ]; then FINAL_MODEL_PATH="$MINERU_DIR"; fi
     
-    log_info "Generating configuration pointing to: $FINAL_MODEL_PATH"
+    log_info "Generating MinerU configuration pointing to: $FINAL_MODEL_PATH"
 
     cat > /root/magic-pdf.json <<EOF
 {
@@ -171,10 +172,17 @@ except Exception as e:
 EOF
     cp /root/magic-pdf.json /root/mineru.json
     chmod 644 /root/magic-pdf.json
+    
+    # ---------------------------------------------------------
+    # D. 检查 PaddleOCR 目录
+    # ---------------------------------------------------------
+    if [ ! -d "/app/models/paddleocr_vl" ]; then
+         mkdir -p /app/models/paddleocr_vl
+    fi
 }
 
 # ============================================================================
-# Database initialization
+# 4. 数据库初始化
 # ============================================================================
 initialize_database() {
     log_info "Checking database..."
@@ -213,7 +221,7 @@ main() {
     initialize_directories
     initialize_database
     
-    # ✅ 执行智能模型管理 (检测 -> 下载 -> 配置)
+    # ✅ 执行智能模型管理 (关键步骤)
     manage_models
 
     if [ "$SERVICE_TYPE" = "worker" ]; then

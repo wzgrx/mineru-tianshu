@@ -158,16 +158,50 @@ export default {
     enableFormulaRecognition: '启用公式识别',
     enableTableRecognition: '启用表格识别',
     pleaseSelectFile: '请先选择文件',
-    // Backend options
+    
+    // ==================== Backend options (Updated) ====================
     backendAuto: '🎯 自动选择（推荐，根据文件类型自动选择最佳引擎）',
     backendAutoHint: '🎯 自动选择: 系统会根据文件扩展名智能选择最合适的引擎进行处理',
-    backendPipeline: 'MinerU Pipeline（完整解析）',
-    backendPaddleOCR: 'PaddleOCR-VL（多语言 OCR，109+ 语言）',
-    backendPaddleOCRHint: '🌏 PaddleOCR-VL: 自动多语言识别，支持文档方向校正、文本矫正、版面检测',
-    backendPaddleOCRVLLM: 'PaddleOCR-VL-VLLM（高性能多语言 OCR）',
-    backendPaddleOCRVLLMHint: '🚀 PaddleOCR-VL-VLLM: 基于 vLLM 的高性能多语言 OCR',
+    
+    // 分组名称
+    groupDocParsing: '文档解析',
+    groupMinerU: 'MinerU 引擎 (PDF/文档解析)',
+    groupPaddleOCR: 'PaddleOCR 引擎 (OCR/版面分析)',
+    groupAudioVideo: '音频/视频处理',
+    groupProfessional: '专业格式解析',
+
+    // MinerU 引擎
+    backendPipeline: 'MinerU Pipeline (经典管道)',
+    backendPipelineHint: '💡 经典管道：传统多模型管道解析，支持多语言，结构化解析能力强，无幻觉风险。',
+    backendVlmAutoEngine: 'VLM Auto Engine (多模态大模型)',
+    backendVlmAutoEngineHint: '🚀 VLM Auto：多模态大模型高精度解析，目前仅支持中英文文档。',
+    backendHybridAutoEngine: 'Hybrid Auto Engine (混合解析)',
+    backendHybridAutoEngineHint: '⚖️ Hybrid Auto：高精度混合解析，结合规则与模型，支持多语言。',
+
+    // PaddleOCR 引擎
+    backendPaddleOcrVl09b: 'PaddleOCR-VL-0.9B (多模态 v1)',
+    backendPaddleOcrVl09bHint: '📄 0.9B 基础版：基础版多模态文档解析模型，速度较快，支持 109+ 种语言。',
+
+    backendPaddleOcrVl1509b: 'PaddleOCR-VL-1.5-0.9B (多模态 v1.5)',
+    backendPaddleOcrVl1509bHint: '✨ 1.5 增强版：针对扭曲、倾斜、屏摄等复杂场景优化，支持异形框定位。',
+
+    backendPpOcrV5: 'PP-OCRv5 (纯文本识别)',
+    backendPpOcrV5Hint: '⚡ PP-OCRv5：超轻量文字识别模型，适合纯文本提取，速度极快。',
+
+    backendPpStructureV3: 'PP-StructureV3 (版面/表格分析)',
+    backendPpStructureV3Hint: '🏗️ PP-StructureV3：专注于版面分析和表格还原，高精度恢复文档结构。',
+
+    backendPpChatOcrV4: 'PP-ChatOCRv4 (对话式 OCR)',
+    backendPpChatOcrV4Hint: '💬 PP-ChatOCRv4：结合 LLM 的通用信息提取，支持通过对话提取关键信息。',
+
+    backendPaddleOCRVLLM: 'PaddleOCR-VL (vLLM 加速版)',
+    backendPaddleOCRVLLMHint: '🚀 vLLM 加速：利用远程 vLLM 服务进行高并发推理。',
+
+    // 其他旧版/备用引擎
     backendVLMTransformers: 'VLM Transformers（视觉语言模型）',
     backendVLMEngine: 'VLM vLLM Engine（高性能 VLM）',
+    
+    // 音视频与专业格式
     backendSenseVoice: 'SenseVoice（语音识别，说话人识别）',
     backendSenseVoiceHint: '🎙️ SenseVoice: 支持多语言语音识别、自动说话人识别、情感识别',
     backendVideo: 'Video（视频转文字，提取音频+语音识别）',
@@ -176,9 +210,7 @@ export default {
     backendFastaHint: '🧬 FASTA: 解析生物序列文件（.fasta/.fa/.fna），支持蛋白质和核酸序列，生成语义化描述',
     backendGenBank: '🧬 GenBank（基因序列注释格式）',
     backendGenBankHint: '🧬 GenBank: 解析基因序列注释文件（.gb/.gbk），提取特征、注释和元数据',
-    groupDocParsing: '文档解析',
-    groupAudioVideo: '音频/视频处理',
-    groupProfessional: '专业格式解析',
+    
     // Language options
     langAuto: '自动检测（音频推荐）',
     langChinese: '中文',

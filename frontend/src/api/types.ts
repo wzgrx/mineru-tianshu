@@ -90,16 +90,26 @@ export type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'ca
 
 // 后端类型
 export type Backend =
-  | 'auto'  // 自动选择引擎
-  | 'pipeline'
+  | 'auto'                       // 自动选择引擎
+  // ==================== MinerU 引擎 ====================
+  | 'pipeline'                   // MinerU 经典管道
+  | 'vlm-auto-engine'            // VLM Auto
+  | 'hybrid-auto-engine'         // Hybrid Auto
+  // ==================== PaddleOCR 引擎 ====================
+  | 'paddleocr-vl'               // (兼容旧版默认)
+  | 'paddleocr-vl-0.9b'          // PaddleOCR-VL v1
+  | 'paddleocr-vl-1.5-0.9b'      // PaddleOCR-VL v1.5
+  | 'pp-ocrv5'                   // PP-OCRv5
+  | 'pp-structurev3'             // PP-StructureV3
+  | 'pp-chatocrv4'               // PP-ChatOCRv4
+  | 'paddleocr-vl-vllm'          // vLLM 加速版
+  // ==================== 其他引擎 ====================
   | 'vlm-transformers'
   | 'vlm-vllm-engine'
-  | 'paddleocr-vl'
-  | 'paddleocr-vl-vllm'
   | 'sensevoice'
   | 'video'
-  | 'fasta'  // FASTA 生物序列格式
-  | 'genbank'  // GenBank 基因序列注释格式
+  | 'fasta'                      // FASTA 生物序列格式
+  | 'genbank';                   // GenBank 基因序列注释格式
 
 // 语言类型
 export type Language = 'auto' | 'ch' | 'en' | 'korean' | 'japan'

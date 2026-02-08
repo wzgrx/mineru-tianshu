@@ -12,11 +12,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     # 显式指定 5090 架构
     TORCH_CUDA_ARCH_LIST="9.0;10.0;12.0"
 
-# ✅【关键修复】替换为阿里云镜像源，解决 apt 下载慢和 502 错误
-RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list.d/ubuntu.sources \
-    && sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list.d/ubuntu.sources
+# 替换为腾讯云镜像源 (Tencent)
+RUN sed -i 's/archive.ubuntu.com/mirrors.cloud.tencent.com/g' /etc/apt/sources.list.d/ubuntu.sources \
+    && sed -i 's/security.ubuntu.com/mirrors.cloud.tencent.com/g' /etc/apt/sources.list.d/ubuntu.sources
 
-# 1. 安装系统依赖 (包含原版所有工具 + 编译工具)
+# 1. 安装系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip python3-venv python3-dev \
     git wget curl vim build-essential \
@@ -33,8 +33,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -sf /usr/bin/python3.12 /usr/bin/python && \
     ln -sf /usr/bin/python3.12 /usr/bin/python3
 
-# 3. 升级 pip (使用清华源加速)
-RUN python -m pip install --upgrade pip -i https://pypi.tuna.tsinghua.edu.cn/simple
+# 3. 升级 pip (✅ 关键修改: 增加 --break-system-packages)
+RUN python -m pip install --upgrade pip \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    --break-system-packages
 
 # ============================================================================
 # Stage 2: 依赖安装 (RTX 5090 兼容策略)

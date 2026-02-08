@@ -1,39 +1,22 @@
-# Tianshu (天枢) - Production Docker Compose
-# 企业级 AI 数据预处理平台完整编排
-#
-# 使用方式:
-#   1. 复制 .env.example 为 .env 并配置
-#   2. 启动服务:
-#      - 不启用 Redis（默认）: docker-compose up -d
-#      - 启用 Redis: docker-compose --profile redis up -d
-#   3. 查看日志: docker-compose logs -f
-#   4. 停止: docker-compose down
-#
-# Redis 说明:
-#   - Redis 是可选的高性能任务队列，默认不启动
-#   - 不启用时使用 SQLite 队列（适合小规模部署）
-#   - 启用时需在 .env 设置 REDIS_QUEUE_ENABLED=true
-#
-# 前置要求:
-#   - Docker 20.10+
-#   - Docker Compose 2.0+
-#   - NVIDIA Container Toolkit (GPU 支持)
+# Tianshu (天枢) - Production Docker Compose (RTX 5090 Optimized)
+# 适配环境: Windows 11 WSL2 (Ubuntu 24.04) + RTX 5090
+# 
+# 注意：
+# 1. 脚本会自动检测 D:\aiworkspace\models\mineru 是否有模型
+# 2. 如果没有，会自动下载 PDF-Extract-Kit-1.0 到该目录
 
-# 项目名称（避免使用目录名）
 name: tianshu
 
 services:
   # ============================================================================
-  # Redis (高性能任务队列 - 可选)
-  # ============================================================================
-  # 启动方式: docker-compose --profile redis up -d
+  # Redis
   # ============================================================================
   redis:
     image: redis:7-alpine
     container_name: tianshu-redis
     restart: unless-stopped
     profiles:
-      - redis  # 使用 profile 实现可选启动
+      - redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -43,45 +26,28 @@ services:
     environment:
       - TZ=Asia/Shanghai
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     networks:
       - tianshu-network
 
   # ============================================================================
-  # RustFS Object Storage (S3 Compatible)
+  # RustFS
   # ============================================================================
   rustfs:
-    image: rustfs/rustfs:latest  # 或指定版本: rustfs/rustfs:1.0.0.alpha.68
+    image: rustfs/rustfs:latest
     container_name: tianshu-rustfs
     restart: unless-stopped
     ports:
       - "${RUSTFS_PORT:-9000}:9000"
       - "${RUSTFS_CONSOLE_PORT:-9001}:9001"
     volumes:
-      # RustFS 数据存储（使用命名卷避免权限问题）
       - rustfs-data:/data
-      # RustFS 日志
       - rustfs-logs:/logs
-      # 时区配置（Linux only，Windows/Mac 会自动忽略）
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
-      # 时区设置
       - TZ=Asia/Shanghai
-      # RustFS 配置
       - RUSTFS_ROOT_USER=${RUSTFS_ACCESS_KEY:-rustfsadmin}
       - RUSTFS_ROOT_PASSWORD=${RUSTFS_SECRET_KEY:-rustfsadmin}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
     networks:
       - tianshu-network
 
@@ -92,88 +58,62 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      # 启用 BuildKit 缓存挂载（需要 DOCKER_BUILDKIT=1 环境变量）
       cache_from:
         - tianshu-backend:latest
     image: tianshu-backend:latest
     container_name: tianshu-backend
     restart: unless-stopped
+    # ✅ 32GB 共享内存
+    shm_size: '32gb'
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
-      # 模型存储（持久化）
-      - ./models:/app/models:rw
-      # PaddleOCR 模型缓存（持久化，避免重复下载）
-      - ./models/paddlex_cache:/root/.paddlex:rw
-      # Hugging Face 模型缓存（持久化）
-      - ./models/huggingface_cache:/root/.cache/huggingface:rw
-      # ModelScope 模型缓存（持久化，国内模型下载）
-      - ./models/modelscope_cache:/root/.cache/modelscope:rw
-      # 上传文件（统一使用 /app/data 路径）
+      # ✅ MinerU: 挂载到 mineru 父目录，允许脚本自动下载/创建子目录
+      - /mnt/d/aiworkspace/models/mineru:/app/models/mineru:rw
+      
+      # ✅ PaddleOCR: 挂载 PaddleOCR 目录
+      - /mnt/d/aiworkspace/models/paddleocr:/app/models/paddleocr:rw
+      - /mnt/d/aiworkspace/models/paddlex:/root/.paddlex:rw
+      
+      # ✅ 其他缓存
+      - /mnt/d/aiworkspace/models/huggingface:/root/.cache/huggingface:rw
+      - /mnt/d/aiworkspace/models/modelscope:/root/.cache/modelscope:rw
+      
+      # 数据
       - ./data/uploads:/app/data/uploads:rw
-      # 输出结果
       - ./data/output:/app/data/output:rw
-      # 日志
       - ./logs/backend:/app/logs:rw
-      # 数据库（只挂载数据库文件，不要覆盖整个 backend 目录）
       - ./data/db:/app/data/db:rw
-      # 时区配置
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
-      # 时区设置
       - TZ=Asia/Shanghai
-      # 应用配置
       - HOST=0.0.0.0
       - API_PORT=8000
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-
-      # JWT 认证
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
       - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
-
-      # CORS 配置
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:80}
-
-      # GPU 配置
       - CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
-
-      # Worker 配置
       - WORKER_URL=${WORKER_URL:-http://worker:8001}
-
-      # 文件限制（0 表示不限制）
-      - MAX_FILE_SIZE=${MAX_FILE_SIZE:-0}  # 不限制文件大小
-
-      # 模型路径
       - MODEL_PATH=/app/models
-      - OUTPUT_PATH=/app/data/output
-      - UPLOAD_PATH=/app/data/uploads
-
-      # 数据库路径
       - DATABASE_PATH=${DATABASE_PATH:-/app/data/db/mineru_tianshu.db}
-
-      # RustFS 对象存储配置
+      
+      # 对象存储
       - RUSTFS_ENABLED=${RUSTFS_ENABLED:-true}
       - RUSTFS_ENDPOINT=${RUSTFS_ENDPOINT:-rustfs:9000}
       - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
       - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin}
       - RUSTFS_BUCKET=${RUSTFS_BUCKET:-ts-img}
-      - RUSTFS_SECURE=${RUSTFS_SECURE:-false}
-      # RUSTFS_PUBLIC_URL: 必须设置为外部可访问的完整 URL
       - RUSTFS_PUBLIC_URL=${RUSTFS_PUBLIC_URL}
 
-      # 模型下载配置
-      - MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE:-auto}
+      # ✅ 关键配置
+      - MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE:-modelscope}
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
-      - HF_TOKEN=${HF_TOKEN:-}
-
-      # Redis 队列配置（可选 - 解决 SQLite 并发瓶颈）
+      - VLLM_WORKER_MULTIPROC_METHOD=spawn
       - REDIS_QUEUE_ENABLED=${REDIS_QUEUE_ENABLED:-false}
       - REDIS_HOST=${REDIS_HOST:-redis}
-      - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_DB=${REDIS_DB:-0}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     deploy:
       resources:
         reservations:
@@ -181,18 +121,11 @@ services:
             - driver: nvidia
               count: ${GPU_COUNT:-1}
               capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
     networks:
       - tianshu-network
     depends_on:
       - worker
       - rustfs
-      # redis 是可选依赖，不在 depends_on 中强制依赖
 
   # ============================================================================
   # LitServe GPU Worker
@@ -201,122 +134,79 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      # 启用 BuildKit 缓存挂载（需要 DOCKER_BUILDKIT=1 环境变量）
       cache_from:
         - tianshu-backend:latest
     image: tianshu-backend:latest
     container_name: tianshu-worker
     restart: unless-stopped
     command: ["worker", "python", "litserve_worker.py"]
+    # ✅ 32GB 共享内存
+    shm_size: '32gb'
     ports:
       - "${WORKER_PORT:-8001}:8001"
     volumes:
-      # 模型存储（读写，因为 SenseVoice 等引擎需要创建缓存目录和下载模型）
-      - ./models:/app/models:rw
-      # PaddleOCR 模型缓存（持久化，避免重复下载）
-      - ./models/paddlex_cache:/root/.paddlex:rw
-      # Hugging Face 模型缓存（持久化）
-      - ./models/huggingface_cache:/root/.cache/huggingface:rw
-      # ModelScope 模型缓存（持久化，国内模型下载）
-      - ./models/modelscope_cache:/root/.cache/modelscope:rw
-      # 上传文件（读写 - Office 转 PDF 功能需要写入转换后的 PDF，统一使用 /app/data 路径）
+      # ✅ 必须与 Backend 保持一致
+      - /mnt/d/aiworkspace/models/mineru:/app/models/mineru:rw
+      - /mnt/d/aiworkspace/models/paddleocr:/app/models/paddleocr:rw
+      - /mnt/d/aiworkspace/models/paddlex:/root/.paddlex:rw
+      - /mnt/d/aiworkspace/models/huggingface:/root/.cache/huggingface:rw
+      - /mnt/d/aiworkspace/models/modelscope:/root/.cache/modelscope:rw
+      
       - ./data/uploads:/app/data/uploads:rw
-      # 输出结果
       - ./data/output:/app/data/output:rw
-      # 日志
       - ./logs/worker:/app/logs:rw
-      # 数据库（读写，需要更新任务状态）
       - ./data/db:/app/data/db:rw
-      # 时区配置
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
-      # 时区设置
       - TZ=Asia/Shanghai
-      # 应用配置
       - HOST=0.0.0.0
       - WORKER_PORT=8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-
-      # GPU 配置
-      # 注意：不设置 CUDA_VISIBLE_DEVICES，让容器自然看到所有 GPU
-      # Python 代码会自动检测并使用所有可用的 GPU
-      - WORKER_GPUS=${WORKER_GPUS:-2}  # 每个 GPU 的 worker 数量
-
-      # 模型路径
+      - WORKER_GPUS=${WORKER_GPUS:-1}
       - MODEL_PATH=/app/models
-      - OUTPUT_PATH=/app/data/output
-      - UPLOAD_PATH=/app/data/uploads
-
-      # 数据库路径（必须与 backend 一致）
       - DATABASE_PATH=${DATABASE_PATH:-/app/data/db/mineru_tianshu.db}
-
-      # Worker 配置
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE:-4}
       - TIMEOUT=${WORKER_TIMEOUT:-300}
-
-      # 模型下载配置
-      - MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE:-auto}
+      - MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE:-modelscope}
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
-      - HF_TOKEN=${HF_TOKEN:-}
-
-      # PDF 拆分配置（Worker 中执行）
       - PDF_SPLIT_ENABLED=${PDF_SPLIT_ENABLED:-true}
-      - PDF_SPLIT_THRESHOLD_PAGES=${PDF_SPLIT_THRESHOLD_PAGES:-500}
-      - PDF_SPLIT_CHUNK_SIZE=${PDF_SPLIT_CHUNK_SIZE:-500}
-
-      # RustFS 对象存储配置
+      
+      # 存储 & Redis
       - RUSTFS_ENABLED=${RUSTFS_ENABLED:-true}
       - RUSTFS_ENDPOINT=${RUSTFS_ENDPOINT:-rustfs:9000}
       - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
       - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin}
       - RUSTFS_BUCKET=${RUSTFS_BUCKET:-ts-img}
-      - RUSTFS_SECURE=${RUSTFS_SECURE:-false}
-      # RUSTFS_PUBLIC_URL: 必须设置为外部可访问的完整 URL
       - RUSTFS_PUBLIC_URL=${RUSTFS_PUBLIC_URL}
-
-      # Redis 队列配置（可选 - 解决 SQLite 并发瓶颈）
       - REDIS_QUEUE_ENABLED=${REDIS_QUEUE_ENABLED:-false}
       - REDIS_HOST=${REDIS_HOST:-redis}
-      - REDIS_PORT=${REDIS_PORT:-6379}
-      - REDIS_DB=${REDIS_DB:-0}
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
-    # 内存限制（兼容旧版 docker-compose）
-    mem_limit: ${WORKER_MEMORY_LIMIT:-16G}
-    memswap_limit: ${WORKER_MEMORY_LIMIT:-16G}
-    mem_reservation: ${WORKER_MEMORY_RESERVATION:-8G}
+    
+    mem_limit: ${WORKER_MEMORY_LIMIT:-32G}
+    memswap_limit: ${WORKER_MEMORY_LIMIT:-32G}
+    mem_reservation: ${WORKER_MEMORY_RESERVATION:-16G}
     deploy:
       resources:
         limits:
-          # 内存硬限制（Docker Compose v2 / Swarm 模式）
-          memory: ${WORKER_MEMORY_LIMIT:-16G}
+          memory: ${WORKER_MEMORY_LIMIT:-32G}
         reservations:
-          # 内存软限制（Docker Compose v2 / Swarm 模式）
-          memory: ${WORKER_MEMORY_RESERVATION:-8G}
+          memory: ${WORKER_MEMORY_RESERVATION:-16G}
           devices:
             - driver: nvidia
               count: ${GPU_COUNT:-1}
               capabilities: [gpu]
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
     networks:
       - tianshu-network
     depends_on:
       - rustfs
-      # redis 是可选依赖，不在 depends_on 中强制依赖
 
   # ============================================================================
-  # MCP Server (Model Context Protocol)
+  # MCP Server
   # ============================================================================
   mcp-server:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      # 启用 BuildKit 缓存挂载（需要 DOCKER_BUILDKIT=1 环境变量）
       cache_from:
         - tianshu-backend:latest
     image: tianshu-backend:latest
@@ -326,15 +216,11 @@ services:
     ports:
       - "${MCP_PORT:-8002}:8002"
     volumes:
-      # 配置文件
       - ./mcp_config.example.json:/app/backend/mcp_config.json:ro
-      # 日志
       - ./logs/mcp:/app/logs:rw
-      # 时区配置
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
-      # 时区设置
       - TZ=Asia/Shanghai
       - HOST=0.0.0.0
       - MCP_PORT=8002
@@ -352,13 +238,12 @@ services:
       - backend
 
   # ============================================================================
-  # Frontend (Vue 3 + Nginx)
+  # Frontend
   # ============================================================================
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      # 启用 BuildKit 缓存挂载（需要 DOCKER_BUILDKIT=1 环境变量）
       cache_from:
         - tianshu-frontend:latest
     image: tianshu-frontend:latest
@@ -367,14 +252,11 @@ services:
     ports:
       - "${FRONTEND_PORT:-80}:80"
     volumes:
-      # 时区配置
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     environment:
-      # 时区设置
       - TZ=Asia/Shanghai
       - VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}
-      # Nginx 文件上传大小限制（0 表示不限制）
       - NGINX_CLIENT_MAX_BODY_SIZE=${NGINX_CLIENT_MAX_BODY_SIZE:-0}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost/"]
@@ -390,7 +272,6 @@ services:
 networks:
   tianshu-network:
     driver: bridge
-    name: tianshu-network
     ipam:
       driver: default
       config:
@@ -398,20 +279,9 @@ networks:
           gateway: 172.28.0.1
 
 volumes:
-  models:
-    driver: local
-  uploads:
-    driver: local
-  output:
-    driver: local
-  logs:
-    driver: local
   redis-data:
     driver: local
-    name: tianshu-redis-data
   rustfs-data:
     driver: local
-    name: tianshu-rustfs-data
   rustfs-logs:
     driver: local
-    name: tianshu-rustfs-logs

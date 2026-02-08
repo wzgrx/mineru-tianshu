@@ -58,8 +58,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      cache_from:
-        - tianshu-backend:latest
+      # 修复：移除 cache_from 以解决构建错误
     image: tianshu-backend:latest
     container_name: tianshu-backend
     restart: unless-stopped
@@ -134,8 +133,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      cache_from:
-        - tianshu-backend:latest
+      # 修复：移除 cache_from 以解决构建错误
     image: tianshu-backend:latest
     container_name: tianshu-worker
     restart: unless-stopped
@@ -207,8 +205,7 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      cache_from:
-        - tianshu-backend:latest
+      # 修复：移除 cache_from 以解决构建错误
     image: tianshu-backend:latest
     container_name: tianshu-mcp
     restart: unless-stopped
@@ -244,8 +241,7 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      cache_from:
-        - tianshu-frontend:latest
+      # 修复：移除 cache_from 以解决构建错误
     image: tianshu-frontend:latest
     container_name: tianshu-frontend
     restart: unless-stopped

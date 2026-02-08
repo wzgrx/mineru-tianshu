@@ -1,13 +1,11 @@
 <template>
   <div>
-    <!-- 页面标题 -->
     <div class="mb-4 lg:mb-6">
       <h1 class="text-xl lg:text-2xl font-bold text-gray-900">{{ $t('task.submitTask') }}</h1>
       <p class="mt-1 text-sm text-gray-600">{{ $t('task.processingOptions') }}</p>
     </div>
 
     <div class="max-w-5xl mx-auto">
-      <!-- 文件上传 -->
       <div class="card mb-6">
         <h2 class="text-lg font-semibold text-gray-900 mb-4">{{ $t('task.selectFile') }}</h2>
         <FileUploader
@@ -18,12 +16,10 @@
         />
       </div>
 
-      <!-- 配置选项 -->
       <div class="card mb-4 lg:mb-6">
         <h2 class="text-base lg:text-lg font-semibold text-gray-900 mb-4">{{ $t('task.processingOptions') }}</h2>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6">
-          <!-- Backend 选择 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">
               {{ $t('task.backend') }}
@@ -34,13 +30,22 @@
               class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
             >
               <option value="auto">{{ $t('task.backendAuto') }}</option>
-              <optgroup :label="$t('task.groupDocParsing')">
+              
+              <optgroup :label="$t('task.groupMinerU')">
                 <option value="pipeline">{{ $t('task.backendPipeline') }}</option>
-                <option value="paddleocr-vl">{{ $t('task.backendPaddleOCR') }}</option>
-                <option value="paddleocr-vl-vllm">{{ $t('task.backendPaddleOCRVLLM') }}</option>
-                <option value="vlm-transformers">{{ $t('task.backendVLMTransformers') }}</option>
-                <option value="vlm-vllm-engine">{{ $t('task.backendVLMEngine') }}</option>
+                <option value="vlm-auto-engine">{{ $t('task.backendVlmAutoEngine') }}</option>
+                <option value="hybrid-auto-engine">{{ $t('task.backendHybridAutoEngine') }}</option>
               </optgroup>
+
+              <optgroup :label="$t('task.groupPaddleOCR')">
+                <option value="paddleocr-vl-0.9b">{{ $t('task.backendPaddleOcrVl09b') }}</option>
+                <option value="paddleocr-vl-1.5-0.9b">{{ $t('task.backendPaddleOcrVl1509b') }}</option>
+                <option value="pp-ocrv5">{{ $t('task.backendPpOcrV5') }}</option>
+                <option value="pp-structurev3">{{ $t('task.backendPpStructureV3') }}</option>
+                <option value="pp-chatocrv4">{{ $t('task.backendPpChatOcrV4') }}</option>
+                <option value="paddleocr-vl-vllm">{{ $t('task.backendPaddleOCRVLLM') }}</option>
+              </optgroup>
+
               <optgroup :label="$t('task.groupAudioVideo')">
                 <option value="sensevoice">{{ $t('task.backendSenseVoice') }}</option>
                 <option value="video">{{ $t('task.backendVideo') }}</option>
@@ -50,31 +55,26 @@
                 <option value="genbank">{{ $t('task.backendGenBank') }}</option>
               </optgroup>
             </select>
-            <p v-if="config.backend === 'auto'" class="mt-1 text-xs text-gray-500">
-              {{ $t('task.backendAutoHint') }}
-            </p>
 
-            <p v-if="config.backend === 'paddleocr-vl'" class="mt-1 text-xs text-gray-500">
-              {{ $t('task.backendPaddleOCRHint') }}
-            </p>
-            <p v-if="config.backend === 'paddleocr-vl-vllm'" class="mt-1 text-xs text-gray-500">
-              {{ $t('task.backendPaddleOCRVLLMHint') }}
-            </p>
-            <p v-if="config.backend === 'sensevoice'" class="mt-1 text-xs text-gray-500">
-              {{ $t('task.backendSenseVoiceHint') }}
-            </p>
-            <p v-if="config.backend === 'video'" class="mt-1 text-xs text-gray-500">
-              {{ $t('task.backendVideoHint') }}
-            </p>
-            <p v-if="config.backend === 'fasta'" class="mt-1 text-xs text-gray-500">
-              {{ $t('task.backendFastaHint') }}
-            </p>
-            <p v-if="config.backend === 'genbank'" class="mt-1 text-xs text-gray-500">
-              {{ $t('task.backendGenBankHint') }}
-            </p>
+            <p v-if="config.backend === 'auto'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendAutoHint') }}</p>
+            
+            <p v-if="config.backend === 'pipeline'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendPipelineHint') }}</p>
+            <p v-if="config.backend === 'vlm-auto-engine'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendVlmAutoEngineHint') }}</p>
+            <p v-if="config.backend === 'hybrid-auto-engine'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendHybridAutoEngineHint') }}</p>
+
+            <p v-if="config.backend === 'paddleocr-vl-0.9b'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendPaddleOcrVl09bHint') }}</p>
+            <p v-if="config.backend === 'paddleocr-vl-1.5-0.9b'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendPaddleOcrVl1509bHint') }}</p>
+            <p v-if="config.backend === 'pp-ocrv5'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendPpOcrV5Hint') }}</p>
+            <p v-if="config.backend === 'pp-structurev3'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendPpStructureV3Hint') }}</p>
+            <p v-if="config.backend === 'pp-chatocrv4'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendPpChatOcrV4Hint') }}</p>
+            <p v-if="config.backend === 'paddleocr-vl-vllm'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendPaddleOCRVLLMHint') }}</p>
+
+            <p v-if="config.backend === 'sensevoice'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendSenseVoiceHint') }}</p>
+            <p v-if="config.backend === 'video'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendVideoHint') }}</p>
+            <p v-if="config.backend === 'fasta'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendFastaHint') }}</p>
+            <p v-if="config.backend === 'genbank'" class="mt-1 text-xs text-gray-500">{{ $t('task.backendGenBankHint') }}</p>
           </div>
 
-          <!-- 语言选择 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">
               {{ $t('task.language') }}
@@ -94,7 +94,6 @@
             </p>
           </div>
 
-          <!-- 解析方法 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">
               {{ $t('task.method') }}
@@ -109,7 +108,6 @@
             </select>
           </div>
 
-          <!-- 优先级 -->
           <div>
             <label class="block text-sm font-medium text-gray-700 mb-2">
               {{ $t('task.priorityLabel') }}
@@ -125,19 +123,16 @@
           </div>
         </div>
 
-        <!-- 提示信息 -->
-        <div v-if="['pipeline', 'paddleocr-vl', 'paddleocr-vl-vllm'].includes(config.backend)" class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <div v-if="['pipeline', 'vlm-auto-engine', 'hybrid-auto-engine', 'paddleocr-vl', 'paddleocr-vl-0.9b', 'paddleocr-vl-1.5-0.9b', 'paddleocr-vl-vllm'].includes(config.backend)" class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
           <p class="text-sm text-blue-800">
-            {{ $t('task.tipBothFormats', { backend: config.backend === 'pipeline' ? 'MinerU' : config.backend === 'paddleocr-vl' ? 'PaddleOCR-VL' : 'PaddleOCR-VL-VLLM' }) }}
+            💡 提示：该引擎会生成 Markdown 结果。部分引擎支持双重输出（Markdown + JSON）。
           </p>
         </div>
 
-        <!-- Video 专属配置 -->
         <div v-if="config.backend === 'video'" class="mt-6 pt-6 border-t border-gray-200">
           <h3 class="text-base font-semibold text-gray-900 mb-4">{{ $t('task.videoOptions') }}</h3>
 
           <div class="space-y-4">
-            <!-- 音频选项 -->
             <div>
               <label class="flex items-center">
                 <input
@@ -152,7 +147,6 @@
               </p>
             </div>
 
-            <!-- 关键帧OCR选项 -->
             <div class="pt-4 border-t border-gray-100">
               <label class="flex items-center">
                 <input
@@ -169,7 +163,6 @@
                 {{ $t('task.enableKeyframeOCRHint') }}
               </p>
 
-              <!-- 关键帧OCR子选项 -->
               <div v-if="config.enable_keyframe_ocr" class="ml-6 mt-3 space-y-3 pl-4 border-l-2 border-primary-200">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -196,12 +189,10 @@
           </div>
         </div>
 
-        <!-- Audio (SenseVoice) 专属配置 -->
         <div v-if="config.backend === 'sensevoice'" class="mt-6 pt-6 border-t border-gray-200">
           <h3 class="text-base font-semibold text-gray-900 mb-4">{{ $t('task.audioOptions') }}</h3>
 
           <div class="space-y-4">
-            <!-- 说话人分离选项 -->
             <div>
               <label class="flex items-center">
                 <input
@@ -219,7 +210,6 @@
               </p>
             </div>
 
-            <!-- 说话人分离提示 -->
             <div v-if="config.enable_speaker_diarization" class="bg-green-50 border border-green-200 rounded-lg p-3">
               <p class="text-xs text-green-800">
                 <strong>{{ $t('task.speakerDiarizationNote') }}</strong>
@@ -233,8 +223,7 @@
           </div>
         </div>
 
-        <!-- PaddleOCR-VL 专属配置 -->
-        <div v-if="config.backend === 'paddleocr-vl'" class="mt-6 pt-6 border-t border-gray-200">
+        <div v-if="config.backend.includes('paddleocr-vl')" class="mt-6 pt-6 border-t border-gray-200">
           <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
             <h3 class="text-sm font-semibold text-blue-900 mb-2">{{ $t('task.paddleOCREnhanced') }}</h3>
             <ul class="text-xs text-blue-800 space-y-1">
@@ -256,7 +245,6 @@
           </div>
         </div>
 
-        <!-- 功能开关（仅 Pipeline） -->
         <div v-if="config.backend === 'pipeline'" class="mt-6 space-y-3">
           <label class="flex items-center">
             <input
@@ -277,12 +265,10 @@
           </label>
         </div>
 
-        <!-- 水印去除配置（PDF/图片） -->
-        <div v-if="['pipeline', 'paddleocr-vl', 'paddleocr-vl-vllm'].includes(config.backend)" class="mt-6 pt-6 border-t border-gray-200">
+        <div v-if="config.backend.includes('paddleocr') || ['pipeline', 'vlm-auto-engine'].includes(config.backend)" class="mt-6 pt-6 border-t border-gray-200">
           <h3 class="text-base font-semibold text-gray-900 mb-4">{{ $t('task.watermarkOptions') }}</h3>
 
           <div class="space-y-4">
-            <!-- 水印去除开关 -->
             <div>
               <label class="flex items-center">
                 <input
@@ -300,7 +286,6 @@
               </p>
             </div>
 
-            <!-- 高级选项 -->
             <div v-if="config.remove_watermark" class="ml-6 mt-3 space-y-3 pl-4 border-l-2 border-purple-200">
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-2">
@@ -349,7 +334,6 @@
               </div>
             </div>
 
-            <!-- PDF 处理说明 -->
             <div v-if="config.remove_watermark" class="bg-purple-50 border border-purple-200 rounded-lg p-3 mt-3">
               <p class="text-xs text-purple-800">
                 <strong>{{ $t('task.watermarkPDFTitle') }}</strong>
@@ -364,7 +348,6 @@
         </div>
       </div>
 
-      <!-- 错误提示 -->
       <div v-if="errorMessage" class="card bg-red-50 border-red-200 mb-6">
         <div class="flex items-start">
           <AlertCircle class="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
@@ -381,7 +364,6 @@
         </div>
       </div>
 
-      <!-- 提交按钮 -->
       <div class="flex flex-col sm:flex-row justify-end gap-2 sm:gap-3">
         <router-link to="/" class="btn btn-secondary text-center">
           {{ $t('common.cancel') }}
@@ -397,7 +379,6 @@
         </button>
       </div>
 
-      <!-- 提交进度 -->
       <div v-if="submitting || submitProgress.length > 0" class="card mt-6">
         <h3 class="text-lg font-semibold text-gray-900 mb-4">{{ $t('common.progress') }}</h3>
         <div class="space-y-2">
@@ -421,7 +402,6 @@
           </div>
         </div>
 
-        <!-- 完成后的操作 -->
         <div v-if="!submitting && submitProgress.length > 0" class="mt-4 flex justify-end gap-3">
           <button
             @click="resetForm"
@@ -498,15 +478,15 @@ function onFilesChange(newFiles: File[]) {
 }
 
 function onBackendChange() {
-  // 根据选择的引擎调整语言设置
-  if (config.backend === 'pipeline') {
-    // MinerU Pipeline 不支持 auto，默认使用中文
-    config.lang = 'ch'
+  // MinerU 引擎处理
+  if (['pipeline', 'hybrid-auto-engine'].includes(config.backend)) {
+    config.lang = 'ch' // MinerU Pipeline 默认中文
+  } else if (config.backend === 'vlm-auto-engine') {
+    config.lang = 'ch' // VLM 推荐中文/英文
   } else if (['fasta', 'genbank'].includes(config.backend)) {
-    // 专业格式引擎不需要语言选择
-    config.lang = 'en'
+    config.lang = 'en' // 专业格式默认英文
   } else {
-    // 其他引擎（auto/音频/视频/OCR）默认自动检测
+    // PaddleOCR / Audio / Video / Auto 默认自动检测
     config.lang = 'auto'
   }
 }

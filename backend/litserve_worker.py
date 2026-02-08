@@ -131,6 +131,24 @@ if MINERU_PIPELINE_AVAILABLE:
 else:
     logger.info("ℹ️  MinerU Pipeline not available (optional)")
 
+# ============================================================================
+# [新增] 检查 MinerU VLM 引擎是否可用 (vlm-auto-engine)
+# ============================================================================
+MINERU_VLM_AVAILABLE = importlib.util.find_spec("mineru.backend.vlm") is not None
+if MINERU_VLM_AVAILABLE:
+    logger.info("✅ MinerU VLM engine available (backend: vlm-auto-engine)")
+else:
+    logger.info("ℹ️  MinerU VLM not available (optional)")
+
+# ============================================================================
+# [新增] 检查 MinerU Hybrid 引擎是否可用 (hybrid-auto-engine)
+# ============================================================================
+MINERU_HYBRID_AVAILABLE = importlib.util.find_spec("mineru.backend.hybrid") is not None
+if MINERU_HYBRID_AVAILABLE:
+    logger.info("✅ MinerU Hybrid engine available (backend: hybrid-auto-engine)")
+else:
+    logger.info("ℹ️  MinerU Hybrid not available (optional)")
+
 # 尝试导入 SenseVoice 音频处理
 SENSEVOICE_AVAILABLE = importlib.util.find_spec("audio_engines") is not None
 if SENSEVOICE_AVAILABLE:
@@ -390,6 +408,8 @@ class MinerUWorkerAPI(ls.LitAPI):
         logger.info("📦 Available Engines:")
         logger.info(f"   • MarkItDown: {'✅' if MARKITDOWN_AVAILABLE else '❌'}")
         logger.info(f"   • MinerU Pipeline: {'✅' if MINERU_PIPELINE_AVAILABLE else '❌'}")
+        logger.info(f"   • MinerU VLM: {'✅' if MINERU_VLM_AVAILABLE else '❌'}")
+        logger.info(f"   • MinerU Hybrid: {'✅' if MINERU_HYBRID_AVAILABLE else '❌'}")
         logger.info(f"   • PaddleOCR-VL: {'✅' if PADDLEOCR_VL_AVAILABLE else '❌'}")
         logger.info(f"   • SenseVoice: {'✅' if SENSEVOICE_AVAILABLE else '❌'}")
         logger.info(f"   • Video Engine: {'✅' if VIDEO_ENGINE_AVAILABLE else '❌'}")
@@ -580,11 +600,13 @@ class MinerUWorkerAPI(ls.LitAPI):
                 logger.info(f"🎬 Processing with video engine: {file_path}")
                 result = self._process_video(file_path, options)
 
-            # 4. 用户指定了 PaddleOCR-VL
-            elif backend == "paddleocr-vl":
+            # 4. 用户指定了 PaddleOCR-VL (及细分变体)
+            elif backend in ["paddleocr-vl", "paddleocr-vl-0.9b", "paddleocr-vl-1.5-0.9b", "pp-ocrv5", "pp-structurev3"]:
                 if not PADDLEOCR_VL_AVAILABLE:
                     raise ValueError("PaddleOCR-VL engine is not available")
-                logger.info(f"🔍 Processing with PaddleOCR-VL: {file_path}")
+                logger.info(f"🔍 Processing with PaddleOCR-VL (variant: {backend}): {file_path}")
+                # 可选：将细分模型名称传入 options，供引擎内部使用（如有支持）
+                options['model_type'] = backend
                 result = self._process_with_paddleocr_vl(file_path, options)
 
             # 5. 用户指定了 PaddleOCR-VL-VLLM
@@ -597,6 +619,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                     raise ValueError("PaddleOCR-VL-VLLM engine is not available")
                 logger.info(f"🔍 Processing with PaddleOCR-VL-VLLM: {file_path}")
                 result = self._process_with_paddleocr_vl_vllm(file_path, options)
+
             # 6. 用户指定了 MinerU Pipeline
             elif backend == "pipeline":
                 if not MINERU_PIPELINE_AVAILABLE:
@@ -604,29 +627,43 @@ class MinerUWorkerAPI(ls.LitAPI):
                 logger.info(f"🔧 Processing with MinerU Pipeline: {file_path}")
                 result = self._process_with_mineru(file_path, options)
 
-            # 7. auto 模式：根据文件类型自动选择引擎
+            # 7. [新增] 用户指定了 MinerU VLM
+            elif backend == "vlm-auto-engine":
+                if not MINERU_VLM_AVAILABLE:
+                    raise ValueError("MinerU VLM engine is not available")
+                logger.info(f"🚀 Processing with MinerU VLM: {file_path}")
+                result = self._process_with_mineru_vlm(file_path, options)
+
+            # 8. [新增] 用户指定了 MinerU Hybrid
+            elif backend == "hybrid-auto-engine":
+                if not MINERU_HYBRID_AVAILABLE:
+                    raise ValueError("MinerU Hybrid engine is not available")
+                logger.info(f"⚖️ Processing with MinerU Hybrid: {file_path}")
+                result = self._process_with_mineru_hybrid(file_path, options)
+
+            # 9. auto 模式：根据文件类型自动选择引擎
             elif backend == "auto":
-                # 7.1 检查是否是专业格式（FASTA, GenBank 等）
+                # 9.1 检查是否是专业格式（FASTA, GenBank 等）
                 if FORMAT_ENGINES_AVAILABLE and FormatEngineRegistry.is_supported(file_path):
                     logger.info(f"🧬 [Auto] Processing with format engine: {file_path}")
                     result = self._process_with_format_engine(file_path, options)
 
-                # 7.2 检查是否是音频文件
+                # 9.2 检查是否是音频文件
                 elif file_ext in [".wav", ".mp3", ".flac", ".m4a", ".ogg"] and SENSEVOICE_AVAILABLE:
                     logger.info(f"🎤 [Auto] Processing audio file: {file_path}")
                     result = self._process_audio(file_path, options)
 
-                # 7.3 检查是否是视频文件
+                # 9.3 检查是否是视频文件
                 elif file_ext in [".mp4", ".avi", ".mkv", ".mov", ".flv", ".wmv"] and VIDEO_ENGINE_AVAILABLE:
                     logger.info(f"🎬 [Auto] Processing video file: {file_path}")
                     result = self._process_video(file_path, options)
 
-                # 7.4 默认使用 MinerU Pipeline 处理 PDF/图片
+                # 9.4 默认使用 MinerU Pipeline 处理 PDF/图片
                 elif file_ext in [".pdf", ".png", ".jpg", ".jpeg"] and MINERU_PIPELINE_AVAILABLE:
                     logger.info(f"🔧 [Auto] Processing with MinerU Pipeline: {file_path}")
                     result = self._process_with_mineru(file_path, options)
 
-                # 7.5 兜底：Office 文档/文本/HTML 使用 MarkItDown（如果可用）
+                # 9.5 兜底：Office 文档/文本/HTML 使用 MarkItDown（如果可用）
                 elif (
                     file_ext in [".docx", ".xlsx", ".pptx", ".doc", ".xls", ".ppt", ".html", ".txt", ".csv"]
                     and self.markitdown
@@ -645,7 +682,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                     )
 
             else:
-                # 8. 尝试使用格式引擎（用户明确指定了 fasta, genbank 等）
+                # 10. 尝试使用格式引擎（用户明确指定了 fasta, genbank 等）
                 if FORMAT_ENGINES_AVAILABLE:
                     engine = FormatEngineRegistry.get_engine(backend)
                     if engine is not None:
@@ -655,13 +692,13 @@ class MinerUWorkerAPI(ls.LitAPI):
                         # 未知的 backend
                         raise ValueError(
                             f"Unknown backend: {backend}. "
-                            f"Supported backends: auto, pipeline, paddleocr-vl, sensevoice, video, fasta, genbank"
+                            f"Supported backends: auto, pipeline, vlm-auto-engine, hybrid-auto-engine, paddleocr-vl, sensevoice, video, fasta, genbank"
                         )
                 else:
                     # 格式引擎不可用
                     raise ValueError(
                         f"Unknown backend: {backend}. "
-                        f"Supported backends: auto, pipeline, paddleocr-vl, sensevoice, video"
+                        f"Supported backends: auto, pipeline, vlm-auto-engine, hybrid-auto-engine, paddleocr-vl, sensevoice, video"
                     )
 
             # 检查 result 是否被正确赋值
@@ -748,6 +785,98 @@ class MinerUWorkerAPI(ls.LitAPI):
             "content": result["markdown"],
             "json_path": result.get("json_path"),
             "json_content": result.get("json_content"),
+        }
+
+    def _process_with_mineru_vlm(self, file_path: str, options: dict) -> dict:
+        """使用 MinerU VLM 引擎处理文档"""
+        # 延迟加载 MinerU VLM 模块
+        from mineru.backend.vlm.vlm_analyze import doc_analyze
+        from mineru.data.data_reader_writer import FileBasedDataWriter
+        from mineru.backend.vlm.vlm_middle_json_mkcontent import mid_json_to_markdown
+
+        # 准备输出目录
+        output_dir = Path(self.output_dir) / Path(file_path).stem
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 读取 PDF 文件
+        with open(file_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        # 初始化 Writer
+        image_writer = FileBasedDataWriter(str(output_dir))
+
+        # 调用 MinerU VLM 接口
+        # VLM 默认使用 transformers backend
+        middle_json, results = doc_analyze(
+            pdf_bytes=pdf_bytes,
+            image_writer=image_writer,
+            backend="transformers", 
+            # model_path 可以通过环境变量或配置自动获取
+        )
+
+        # 将中间 JSON 转换为 Markdown
+        md_content = mid_json_to_markdown(middle_json)
+
+        # 保存结果
+        output_file = output_dir / "result.md"
+        output_file.write_text(md_content, encoding="utf-8")
+        
+        # 保存 JSON (可选，作为调试或备份)
+        json_file = output_dir / "result.json"
+        if middle_json:
+            json_file.write_text(json.dumps(middle_json, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        # 规范化输出
+        normalize_output(output_dir)
+
+        return {
+            "result_path": str(output_dir),
+            "content": md_content,
+            "json_content": middle_json
+        }
+
+    def _process_with_mineru_hybrid(self, file_path: str, options: dict) -> dict:
+        """使用 MinerU Hybrid 引擎处理文档"""
+        # 延迟加载 MinerU Hybrid 模块
+        from mineru.backend.hybrid.hybrid_analyze import doc_analyze
+        from mineru.data.data_reader_writer import FileBasedDataWriter
+        from mineru.backend.pipeline.pipeline_middle_json_mkcontent import mid_json_to_markdown
+
+        output_dir = Path(self.output_dir) / Path(file_path).stem
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        with open(file_path, "rb") as f:
+            pdf_bytes = f.read()
+
+        image_writer = FileBasedDataWriter(str(output_dir))
+
+        # 调用 MinerU Hybrid 接口
+        # Hybrid 引擎通常使用 'auto' 或 'ocr' 模式
+        middle_json, results, _ = doc_analyze(
+            pdf_bytes=pdf_bytes,
+            image_writer=image_writer,
+            language=options.get("lang", "ch"),
+            parse_method=options.get("method", "auto")
+        )
+
+        # 将中间 JSON 转换为 Markdown
+        # Hybrid 模式的输出结构通常兼容 Pipeline 的 markdown 生成器
+        md_content = mid_json_to_markdown(middle_json)
+
+        # 保存结果
+        output_file = output_dir / "result.md"
+        output_file.write_text(md_content, encoding="utf-8")
+        
+        json_file = output_dir / "result.json"
+        if middle_json:
+            json_file.write_text(json.dumps(middle_json, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        normalize_output(output_dir)
+
+        return {
+            "result_path": str(output_dir),
+            "content": md_content,
+            "json_content": middle_json
         }
 
     def _process_with_markitdown(self, file_path: str) -> dict:
@@ -1233,7 +1362,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                     # 添加分页标记
                     if chunk_info:
                         markdown_parts.append(
-                            f"\n\n<!-- Pages {chunk_info['start_page']}-{chunk_info['end_page']} -->\n\n"
+                            f"\n\n\n\n"
                         )
                     markdown_parts.append(content)
 

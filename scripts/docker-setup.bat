@@ -21,20 +21,26 @@ REM 环境检查
 REM ============================================================================
 :check_wsl
 echo [INFO] Checking WSL environment (%WSL_DISTRO%)...
-wsl -l -v | findstr "%WSL_DISTRO%" >nul
+
+REM 修改点：不再读取文本，而是直接尝试连接 WSL。如果连接成功(返回0)，说明存在。
+wsl -d %WSL_DISTRO% true >nul 2>&1
+
 if errorlevel 1 (
-    echo [ERROR] WSL Distro '%WSL_DISTRO%' not found!
+    echo [ERROR] WSL Distro '%WSL_DISTRO%' did not respond!
     echo [INFO] Please run: wsl --install -d %WSL_DISTRO%
+    echo [INFO] Current installed distros:
+    wsl -l -v
     pause
     exit /b 1
 )
-echo [OK] WSL Distro found
+echo [OK] WSL Distro found and ready.
 
 echo [INFO] Checking Docker inside WSL...
 %WSL_CMD% docker --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Docker not found inside WSL!
-    echo [INFO] Please enable 'WSL Integration' in Docker Desktop Settings.
+    echo [INFO] Please enable 'WSL Integration' in Docker Desktop Settings:
+    echo        Settings -> Resources -> WSL Integration -> Toggle '%WSL_DISTRO%' ON.
     pause
     exit /b 1
 )
@@ -98,7 +104,7 @@ if not exist .env (
     )
 )
 
-REM 确保 D 盘模型目录存在 (对应 docker-compose.yml 中的 /mnt/d/...)
+REM 确保 D 盘模型目录存在
 call :create_dirs
 
 REM 在 WSL 中构建
@@ -172,13 +178,14 @@ if not exist data\output mkdir data\output
 if not exist data\db mkdir data\db
 if not exist logs mkdir logs
 
-echo [INFO] Creating D: drive model directories (for WSL mounting)...
-REM 这里对应 docker-compose.yml 里的 /mnt/d/aiworkspace/models
+echo [INFO] Checking D: drive model directories...
 if not exist "D:\aiworkspace\models\mineru" mkdir "D:\aiworkspace\models\mineru"
+if not exist "D:\aiworkspace\models\paddleocr" mkdir "D:\aiworkspace\models\paddleocr"
 if not exist "D:\aiworkspace\models\paddlex" mkdir "D:\aiworkspace\models\paddlex"
 if not exist "D:\aiworkspace\models\huggingface" mkdir "D:\aiworkspace\models\huggingface"
 if not exist "D:\aiworkspace\models\modelscope" mkdir "D:\aiworkspace\models\modelscope"
-echo [OK] Directories ready.
+
+echo [OK] Directories checked.
 if "%1"=="" pause & goto menu
 exit /b
 

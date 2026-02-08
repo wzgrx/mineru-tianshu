@@ -601,7 +601,7 @@ class MinerUWorkerAPI(ls.LitAPI):
                 result = self._process_video(file_path, options)
 
             # 4. 用户指定了 PaddleOCR-VL (及细分变体)
-            elif backend in ["paddleocr-vl", "paddleocr-vl-0.9b", "paddleocr-vl-1.5-0.9b", "pp-ocrv5", "pp-structurev3"]:
+            elif backend in ["paddleocr-vl", "paddleocr-vl-0.9b", "paddleocr-vl-1.5-0.9b", "pp-ocrv5", "pp-structurev3", "pp-chatocrv4"]:
                 if not PADDLEOCR_VL_AVAILABLE:
                     raise ValueError("PaddleOCR-VL engine is not available")
                 logger.info(f"🔍 Processing with PaddleOCR-VL (variant: {backend}): {file_path}")
@@ -1025,7 +1025,8 @@ class MinerUWorkerAPI(ls.LitAPI):
         output_dir.mkdir(parents=True, exist_ok=True)
 
         # 处理文件（parse 方法需要 output_path）
-        result = self.paddleocr_vl_engine.parse(file_path, output_path=str(output_dir))
+        # 【关键修改】传递 **options 以支持 model_type 参数
+        result = self.paddleocr_vl_engine.parse(file_path, output_path=str(output_dir), **options)
 
         # 规范化输出（统一文件名和目录结构）
         normalize_output(output_dir)

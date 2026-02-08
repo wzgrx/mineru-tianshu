@@ -22,7 +22,7 @@ REM ============================================================================
 :check_wsl
 echo [INFO] Checking WSL environment (%WSL_DISTRO%)...
 
-REM 修改点：不再读取文本，而是直接尝试连接 WSL。如果连接成功(返回0)，说明存在。
+REM 尝试连接 WSL，不再依赖文本输出检测
 wsl -d %WSL_DISTRO% true >nul 2>&1
 
 if errorlevel 1 (
@@ -39,8 +39,7 @@ echo [INFO] Checking Docker inside WSL...
 %WSL_CMD% docker --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Docker not found inside WSL!
-    echo [INFO] Please enable 'WSL Integration' in Docker Desktop Settings:
-    echo        Settings -> Resources -> WSL Integration -> Toggle '%WSL_DISTRO%' ON.
+    echo [INFO] Please enable 'WSL Integration' in Docker Desktop Settings.
     pause
     exit /b 1
 )
@@ -100,12 +99,13 @@ if not exist .env (
         echo [INFO] Creating .env file from example...
         copy .env.example .env >nul
         echo [WARNING] Default .env created. Please edit it for RTX 5090 config!
+        REM 这里暂停是为了让你看到警告，按键后继续
         pause
     )
 )
 
-REM 确保 D 盘模型目录存在
-call :create_dirs
+REM 确保 D 盘模型目录存在 (传递参数 quiet 以避免跳回菜单)
+call :create_dirs quiet
 
 REM 在 WSL 中构建
 echo [INFO] Building images in WSL (BuildKit enabled)...
@@ -186,7 +186,12 @@ if not exist "D:\aiworkspace\models\huggingface" mkdir "D:\aiworkspace\models\hu
 if not exist "D:\aiworkspace\models\modelscope" mkdir "D:\aiworkspace\models\modelscope"
 
 echo [OK] Directories checked.
-if "%1"=="" pause & goto menu
+
+REM 关键修改：如果有参数（如 quiet），则直接返回；否则暂停并回菜单
+if "%1"=="" (
+    pause
+    goto menu
+)
 exit /b
 
 REM ============================================================================

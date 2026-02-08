@@ -58,7 +58,6 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      # 修复：移除 cache_from 以解决构建错误
     image: tianshu-backend:latest
     container_name: tianshu-backend
     restart: unless-stopped
@@ -67,10 +66,10 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
-      # ✅ MinerU: 挂载到 mineru 父目录，允许脚本自动下载/创建子目录
+      # ✅ MinerU
       - /mnt/d/aiworkspace/models/mineru:/app/models/mineru:rw
       
-      # ✅ PaddleOCR: 挂载 PaddleOCR 目录
+      # ✅ PaddleOCR 通用目录
       - /mnt/d/aiworkspace/models/paddleocr:/app/models/paddleocr:rw
       - /mnt/d/aiworkspace/models/paddlex:/root/.paddlex:rw
       
@@ -133,7 +132,6 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      # 修复：移除 cache_from 以解决构建错误
     image: tianshu-backend:latest
     container_name: tianshu-worker
     restart: unless-stopped
@@ -143,7 +141,11 @@ services:
     ports:
       - "${WORKER_PORT:-8001}:8001"
     volumes:
-      # ✅ 必须与 Backend 保持一致
+      # ✅ PaddleOCR-VL 两个版本的特定挂载 (WSL2路径 -> 容器路径)
+      - /mnt/d/aiworkspace/models/paddlex/PaddleOCR-VL:/app/models/paddleocr-vl-v1:rw
+      - /mnt/d/aiworkspace/models/paddlex/PaddleOCR-VL-1.5:/app/models/paddleocr-vl-v1.5:rw
+      
+      # ✅ 其他常规挂载
       - /mnt/d/aiworkspace/models/mineru:/app/models/mineru:rw
       - /mnt/d/aiworkspace/models/paddleocr:/app/models/paddleocr:rw
       - /mnt/d/aiworkspace/models/paddlex:/root/.paddlex:rw
@@ -161,7 +163,8 @@ services:
       - HOST=0.0.0.0
       - WORKER_PORT=8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - WORKER_GPUS=${WORKER_GPUS:-1}
+      # ✅ 限制为单进程以避免 SQLite 锁
+      - WORKER_GPUS=1 
       - MODEL_PATH=/app/models
       - DATABASE_PATH=${DATABASE_PATH:-/app/data/db/mineru_tianshu.db}
       - MAX_BATCH_SIZE=${MAX_BATCH_SIZE:-4}
@@ -169,6 +172,10 @@ services:
       - MODEL_DOWNLOAD_SOURCE=${MODEL_DOWNLOAD_SOURCE:-modelscope}
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - PDF_SPLIT_ENABLED=${PDF_SPLIT_ENABLED:-true}
+      
+      # ✅ PaddleOCR 路径配置 (对应上面的 volumes 挂载点)
+      - PADDLEOCR_VL_V1_DIR=/app/models/paddleocr-vl-v1
+      - PADDLEOCR_VL_V1_5_DIR=/app/models/paddleocr-vl-v1.5
       
       # 存储 & Redis
       - RUSTFS_ENABLED=${RUSTFS_ENABLED:-true}
@@ -179,7 +186,7 @@ services:
       - RUSTFS_PUBLIC_URL=${RUSTFS_PUBLIC_URL}
       - REDIS_QUEUE_ENABLED=${REDIS_QUEUE_ENABLED:-false}
       - REDIS_HOST=${REDIS_HOST:-redis}
-    
+     
     mem_limit: ${WORKER_MEMORY_LIMIT:-32G}
     memswap_limit: ${WORKER_MEMORY_LIMIT:-32G}
     mem_reservation: ${WORKER_MEMORY_RESERVATION:-16G}
@@ -205,7 +212,6 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
-      # 修复：移除 cache_from 以解决构建错误
     image: tianshu-backend:latest
     container_name: tianshu-mcp
     restart: unless-stopped
@@ -241,7 +247,6 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      # 修复：移除 cache_from 以解决构建错误
     image: tianshu-frontend:latest
     container_name: tianshu-frontend
     restart: unless-stopped

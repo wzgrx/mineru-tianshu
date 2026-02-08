@@ -1,9 +1,9 @@
 # Tianshu (天枢) - Production Docker Compose (RTX 5090 Optimized)
 # 适配环境: Windows 11 WSL2 (Ubuntu 24.04) + RTX 5090
 # 
-# 注意：
-# 1. 脚本会自动检测 D:\aiworkspace\models\mineru 是否有模型
-# 2. 如果没有，会自动下载 PDF-Extract-Kit-1.0 到该目录
+# 更新说明:
+# 1. 已添加 network: host 解决构建时的网络超时/502问题
+# 2. 移除了 cache_from 以强制本地构建
 
 name: tianshu
 
@@ -58,6 +58,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      # ✅ 关键修改：使用主机网络进行构建，解决代理连接问题
+      network: host
     image: tianshu-backend:latest
     container_name: tianshu-backend
     restart: unless-stopped
@@ -132,6 +134,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      # ✅ 关键修改：使用主机网络构建
+      network: host
     image: tianshu-backend:latest
     container_name: tianshu-worker
     restart: unless-stopped
@@ -163,7 +167,6 @@ services:
       - HOST=0.0.0.0
       - WORKER_PORT=8001
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      # ✅ 限制为单进程以避免 SQLite 锁
       - WORKER_GPUS=1 
       - MODEL_PATH=/app/models
       - DATABASE_PATH=${DATABASE_PATH:-/app/data/db/mineru_tianshu.db}
@@ -173,7 +176,7 @@ services:
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - PDF_SPLIT_ENABLED=${PDF_SPLIT_ENABLED:-true}
       
-      # ✅ PaddleOCR 路径配置 (对应上面的 volumes 挂载点)
+      # ✅ PaddleOCR 路径配置
       - PADDLEOCR_VL_V1_DIR=/app/models/paddleocr-vl-v1
       - PADDLEOCR_VL_V1_5_DIR=/app/models/paddleocr-vl-v1.5
       
@@ -186,7 +189,7 @@ services:
       - RUSTFS_PUBLIC_URL=${RUSTFS_PUBLIC_URL}
       - REDIS_QUEUE_ENABLED=${REDIS_QUEUE_ENABLED:-false}
       - REDIS_HOST=${REDIS_HOST:-redis}
-     
+      
     mem_limit: ${WORKER_MEMORY_LIMIT:-32G}
     memswap_limit: ${WORKER_MEMORY_LIMIT:-32G}
     mem_reservation: ${WORKER_MEMORY_RESERVATION:-16G}
@@ -212,6 +215,8 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      # ✅ 关键修改：使用主机网络构建
+      network: host
     image: tianshu-backend:latest
     container_name: tianshu-mcp
     restart: unless-stopped
@@ -247,6 +252,8 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+      # ✅ 关键修改：使用主机网络构建
+      network: host
     image: tianshu-frontend:latest
     container_name: tianshu-frontend
     restart: unless-stopped

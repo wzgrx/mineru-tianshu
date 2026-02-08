@@ -33,10 +33,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -sf /usr/bin/python3.12 /usr/bin/python && \
     ln -sf /usr/bin/python3.12 /usr/bin/python3
 
-# 3. 升级 pip (✅ 关键修改: 增加 --break-system-packages)
-RUN python -m pip install --upgrade pip \
-    -i https://pypi.tuna.tsinghua.edu.cn/simple \
-    --break-system-packages
+# ❌ 删除这一步：不再尝试升级系统 pip，避免 RECORD file not found 错误
+# RUN python -m pip install --upgrade pip ...
 
 # ============================================================================
 # Stage 2: 依赖安装 (RTX 5090 兼容策略)

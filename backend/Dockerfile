@@ -9,6 +9,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     CUDA_HOME=/usr/local/cuda \
     PATH=/usr/local/cuda/bin:$PATH \
     LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH \
+    # RTX 5090 (Blackwell) 架构支持
     TORCH_CUDA_ARCH_LIST="9.0;10.0;12.0"
 
 # ✅ [关键] 配置 APT 网络防御机制
@@ -43,7 +44,7 @@ FROM base AS dependencies
 WORKDIR /tmp
 COPY backend/requirements.txt /tmp/requirements.txt
 
-# Step 1: 安装 vLLM (RTX 5090 推荐 >=0.15.1+)
+# Step 1: 安装 vLLM (使用用户指定版本 0.15.1+)
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing vLLM..." && \
     pip install "vllm>=0.15.1" \
@@ -51,13 +52,16 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     --extra-index-url https://download.pytorch.org/whl/cu130 \
     --break-system-packages
 
-# Step 2: 安装 PaddlePaddle
+# Step 2: 安装 PaddlePaddle (使用用户指定版本 3.3.0)
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing PaddlePaddle..." && \
-    (pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu130/ --break-system-packages || \
-     pip install --pre paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/nightly/cu130/ --break-system-packages)
+    pip install paddlepaddle-gpu==3.3.0 \
+    -i https://www.paddlepaddle.org.cn/packages/stable/cu130/ \
+    --break-system-packages
 
-# Step 3: 安装常规依赖 (此时包含 doclayout-yolo==0.0.4)
+# Step 3: 安装常规依赖
+# ⚠️ 注意：requirements.txt 中的 doclayout-yolo 和 albumentations 可能会被此步安装，
+# 但我们在 Step 5 会强制覆盖以确保版本正确
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing dependencies..." && \
     cat /tmp/requirements.txt | grep -vE "torch|paddle|vllm" > /tmp/cleaned_requirements.txt && \
@@ -65,7 +69,8 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     --retries 10 --timeout 120 \
     --break-system-packages
 
-# Step 4: 安装 MinerU Core (绕过依赖检查，防止降级)
+# Step 4: 安装 MinerU Core (绕过依赖检查)
+# ⚠️ 核心操作：使用 --no-deps 防止 pip 读取 pyproject.toml 并自动降级我们的库
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing MinerU Core..." && \
     pip install "mineru[core]>=2.7.6" --no-deps \
@@ -74,6 +79,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Step 5: 强制“嫁接”正确的依赖版本 (Conflict-Free Fix)
 # ✅ [关键修复] 使用 doclayout-yolo 0.0.4 配合 albumentations 2.x
+# 不再强制安装旧版 0.0.2b1 和 albumentations<1.4.0
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Patching dependencies for MinerU/YOLO compat..." && \
     pip install doclayout-yolo==0.0.4 --no-deps --break-system-packages && \

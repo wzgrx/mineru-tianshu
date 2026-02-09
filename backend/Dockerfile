@@ -85,14 +85,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install doclayout-yolo==0.0.4 --no-deps --break-system-packages && \
     pip install "albumentations>=2.0.8" "albucore>=0.0.20" --break-system-packages
 
-# Step 6: 补齐工具
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install paddleocr[doc-parser]>=2.9.1 \
-    transformers==4.57.6 tokenizers>=0.21.0 \
-    fastapi uvicorn litserve aiohttp \
-    --break-system-packages
-
-# Step 7: 验证环境
+# Step 6: 验证环境 (原补齐工具步骤已移除，因为 requirements.txt 已包含所需依赖)
 RUN python -c "import sys; print('Python:', sys.version)" && \
     python -c "import torch; print('✅ PyTorch:', torch.__version__)" && \
     python -c "import doclayout_yolo; print('✅ DocLayout-YOLO:', doclayout_yolo.__version__)"

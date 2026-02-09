@@ -83,6 +83,7 @@ class PaddleOCREngine:
                 if not paddle.device.is_compiled_with_cuda():
                     logger.warning("⚠️ PaddlePaddle CUDA not found! Falling back to CPU.")
                     self.use_gpu = False
+                    paddle.set_device("cpu")
                 else:
                     paddle.set_device(f"gpu:{self.gpu_id}")
             else:
@@ -114,10 +115,8 @@ class PaddleOCREngine:
                     if '0.9b' in model_type and '1.5' not in model_type:
                         ver = 'v1'
                     
-                    logger.info(f"   🚀 Mode: PaddleOCR-VL (Version: {ver})")
+                    logger.info(f"    🚀 Mode: PaddleOCR-VL (Version: {ver})")
                     
-                    # 【关键修复】移除不支持的 models_dir 参数
-                    # 模型加载依赖 ~/.paddleocr 默认路径或 Docker 挂载的 /root/.paddleocr
                     instance = PaddleOCRVL(
                         pipeline_version=ver,
                         use_doc_orientation_classify=True,
@@ -129,21 +128,21 @@ class PaddleOCREngine:
                 # 2. PP-StructureV3 (版面分析)
                 # =========================================================
                 elif 'pp-structure' in model_type:
-                    logger.info("   🏗️ Mode: PP-StructureV3")
+                    logger.info("    🏗️ Mode: PP-StructureV3")
                     if PPStructureV3:
+                        # ✅ [修复] 移除 use_gpu 参数，由全局 paddle.set_device 控制
                         instance = PPStructureV3(
                             use_doc_orientation_classify=True,
                             use_doc_unwarping=True,
-                            use_gpu=self.use_gpu,
                             lang='ch' if lang=='auto' else lang
                         )
                     else:
-                        # 降级兼容旧版
+                        # 降级兼容旧版 PPStructure (保留参数)
                         from paddleocr import PPStructure
                         instance = PPStructure(
                             show_log=False,
                             image_orientation=True,
-                            structure_version='PP-StructureV3',
+                            structure_version='PP-StructureV2', # 旧版通常是 V2
                             use_gpu=self.use_gpu,
                             lang='ch' if lang=='auto' else lang
                         )
@@ -152,9 +151,9 @@ class PaddleOCREngine:
                 # 3. PP-ChatOCRv4 (智能提取)
                 # =========================================================
                 elif 'pp-chatocr' in model_type:
-                    logger.info("   💬 Mode: PP-ChatOCRv4")
+                    logger.info("    💬 Mode: PP-ChatOCRv4")
                     if PPChatOCRv4Doc:
-                        # ChatOCR 基础初始化，Visual Predict 不需要 key
+                        # ChatOCR 基础初始化
                         instance = PPChatOCRv4Doc(
                             use_doc_orientation_classify=True,
                             use_doc_unwarping=True
@@ -162,20 +161,18 @@ class PaddleOCREngine:
                     else:
                         logger.warning("⚠️ PPChatOCRv4Doc not found. Falling back to PP-Structure.")
                         from paddleocr import PPStructure
-                        instance = PPStructure(structure_version='PP-StructureV3')
+                        instance = PPStructure(structure_version='PP-StructureV2')
 
                 # =========================================================
                 # 4. PP-OCRv5 (通用 OCR)
                 # =========================================================
                 else: 
-                    logger.info("   ⚡ Mode: PP-OCRv5")
-                    # PaddleOCR 3.x 会自动下载最新的 v4/v5 模型
+                    logger.info("    ⚡ Mode: PP-OCRv5")
+                    # ✅ [修复] 移除 use_gpu 和 show_log 参数
                     instance = PaddleOCR(
                         use_angle_cls=True,
                         use_doc_orientation_classify=True,
                         lang='ch' if lang=='auto' else lang,
-                        use_gpu=self.use_gpu,
-                        show_log=False,
                         ocr_version='PP-OCRv4' # v4 tag 兼容 v5
                     )
                 
@@ -210,7 +207,7 @@ class PaddleOCREngine:
                 
                 # 1. ChatOCR 特殊处理
                 if 'pp-chatocr' in model_type and PPChatOCRv4Doc and isinstance(model, PPChatOCRv4Doc):
-                    logger.info("   Running ChatOCR visual_predict...")
+                    logger.info("    Running ChatOCR visual_predict...")
                     # visual_predict 返回视觉信息，不进行 LLM 对话
                     res = model.visual_predict(str(file_path))
                     markdown_content = "> PP-ChatOCRv4 Visual Analysis Completed.\n> (To ask questions, configure LLM/API Key)"
@@ -218,7 +215,7 @@ class PaddleOCREngine:
                     
                 # 2. VL 和 StructureV3 标准处理
                 else:
-                    logger.info(f"   Predicting with {model_type}...")
+                    logger.info(f"    Predicting with {model_type}...")
                     res = model.predict(input=str(file_path))
                     
                     # 转换为列表 (如果只返回单个结果)
@@ -228,7 +225,7 @@ class PaddleOCREngine:
                     # PaddleOCR-VL 1.5 支持 restructure_pages
                     if 'paddleocr-vl' in model_type and hasattr(model, 'restructure_pages'):
                          try:
-                             logger.info("   Restructuring pages (merging tables)...")
+                             logger.info("    Restructuring pages (merging tables)...")
                              # merge_table=True 合并跨页表格
                              pages_res = model.restructure_pages(pages_res, merge_table=True)
                          except Exception as e:
@@ -244,7 +241,7 @@ class PaddleOCREngine:
                                     md_list_struct.append(p.markdown)
                             
                             if md_list_struct:
-                                logger.info("   Concatenating markdown pages (StructureV3)...")
+                                logger.info("    Concatenating markdown pages (StructureV3)...")
                                 full_md = model.concatenate_markdown_pages(md_list_struct)
                                 # 覆盖下面的逐页拼接逻辑
                                 markdown_content = full_md
@@ -285,7 +282,7 @@ class PaddleOCREngine:
 
             # === 分支 B: 纯 OCR 模型 (PP-OCRv5) ===
             else:
-                logger.info("   Running PP-OCRv5...")
+                logger.info("    Running PP-OCRv5...")
                 from PIL import Image
                 imgs = []
                 

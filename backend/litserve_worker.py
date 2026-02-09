@@ -125,6 +125,9 @@ class MinerUWorkerAPI(ls.LitAPI):
         
         ctx = multiprocessing.get_context("spawn")
         self._global_worker_counter = ctx.Value("i", 0)
+        
+        # ✅ [新增] 初始化 worker_id 为 None，防止 AttributeError
+        self.worker_id = None
 
     def setup(self, device):
         with self._global_worker_counter.get_lock():
@@ -204,17 +207,25 @@ class MinerUWorkerAPI(ls.LitAPI):
             except Exception as e:
                 logger.error(f"❌ Watermark engine failed: {e}")
 
-        # 启动循环
+        # ✅ [修改] 启动循环移至 setup 末尾，确保 worker_id 已就绪
         self.running = True
         self.current_task_id = None
         if self.enable_worker_loop:
-            self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
-            self.worker_thread.start()
+            # 防止重复启动
+            if not hasattr(self, 'worker_thread') or not self.worker_thread.is_alive():
+                self.worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+                self.worker_thread.start()
+                logger.info(f"🚀 Worker thread started for Worker #{self.worker_id}")
 
     def _worker_loop(self):
         """Worker 主循环"""
         logger.info(f"🔁 Worker loop started (interval={self.poll_interval}s)")
         while self.running:
+            # ✅ [修改] 安全检查：如果 worker_id 尚未分配，则等待
+            if self.worker_id is None:
+                time.sleep(0.1)
+                continue
+
             try:
                 task = self.task_db.get_next_task(worker_id=self.worker_id)
                 if task:

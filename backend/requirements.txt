@@ -64,7 +64,7 @@ simple-lama-inpainting>=0.1.0
 huggingface-hub>=0.32.4
 modelscope>=1.26.0
 
-# --- Web 服务 & UI ---
+# --- Web 服务 & API ---
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
 python-multipart>=0.0.9

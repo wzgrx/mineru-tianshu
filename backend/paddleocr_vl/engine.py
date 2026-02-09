@@ -1,9 +1,9 @@
 """
-PaddleOCR 统一解析引擎 (适配 PaddleOCR 3.x / VL 1.5)
+PaddleOCR 统一解析引擎 (最终修复版 - 适配 PaddleOCR 3.0+)
 支持模型:
-1. PaddleOCR-VL (v1 / v1.5) - 多模态文档理解，支持跨页表格合并
+1. PaddleOCR-VL (v1 / v1.5) - 多模态文档理解
 2. PP-OCRv5 - 高精度纯文本识别 (支持 109 种语言)
-3. PP-StructureV3 - 版面分析与表格还原
+3. PP-StructureV3 - 版面分析与表格还原 (使用新版 API)
 4. PP-ChatOCRv4 - 智能信息提取 (基础视觉模式)
 """
 import os
@@ -19,7 +19,8 @@ try:
     import paddle
     # 基础 OCR
     from paddleocr import PaddleOCR
-    # 3.x 新增/更新的类
+    
+    # 尝试导入 3.x 新增/更新的类
     try:
         from paddleocr import PaddleOCRVL
     except ImportError:
@@ -107,7 +108,7 @@ class PaddleOCREngine:
                 # =========================================================
                 if 'paddleocr-vl' in model_type and 'vllm' not in model_type:
                     if PaddleOCRVL is None:
-                        raise ImportError("PaddleOCRVL not available.")
+                        raise ImportError("PaddleOCRVL not available. Check paddleocr version.")
                     
                     # 版本判断
                     ver = 'v1.5' # 默认最新
@@ -116,7 +117,7 @@ class PaddleOCREngine:
                     
                     logger.info(f"   🚀 Mode: PaddleOCR-VL (Version: {ver})")
                     
-                    # 初始化参数 (启用文档方向分类和纠偏)
+                    # 【修复】移除不支持的 models_dir 参数，仅使用官方支持的参数
                     instance = PaddleOCRVL(
                         pipeline_version=ver,
                         use_doc_orientation_classify=True,
@@ -213,14 +214,14 @@ class PaddleOCREngine:
                     # visual_predict 返回视觉信息，不进行 LLM 对话
                     res = model.visual_predict(str(file_path))
                     markdown_content = "> PP-ChatOCRv4 Visual Analysis Completed.\n> (To ask questions, configure LLM/API Key)"
-                    json_data = {"visual_info": str(res)} # 结果较复杂，暂存字符串
+                    json_data = {"visual_info": str(res)} 
                     
                 # 2. VL 和 StructureV3 标准处理
                 else:
                     logger.info(f"   Predicting with {model_type}...")
                     res = model.predict(input=str(file_path))
                     
-                    # 转换为列表
+                    # 转换为列表 (如果只返回单个结果)
                     pages_res = list(res) if hasattr(res, '__iter__') else [res]
                     
                     # === 关键优化：使用官方 API 进行页面重构/合并 ===
@@ -236,17 +237,21 @@ class PaddleOCREngine:
                     # PP-StructureV3 支持 concatenate_markdown_pages
                     elif 'pp-structure' in model_type and hasattr(model, 'concatenate_markdown_pages'):
                         try:
-                            # 提取 markdown 信息列表
-                            md_list = [p.markdown for p in pages_res if hasattr(p, 'markdown')]
-                            if md_list:
-                                logger.info("   Concatenating markdown pages...")
-                                full_md = model.concatenate_markdown_pages(md_list)
+                            # 提取 markdown 信息列表 (参考文档 2.2 节)
+                            md_list_struct = []
+                            for p in pages_res:
+                                if hasattr(p, 'markdown'):
+                                    md_list_struct.append(p.markdown)
+                            
+                            if md_list_struct:
+                                logger.info("   Concatenating markdown pages (StructureV3)...")
+                                full_md = model.concatenate_markdown_pages(md_list_struct)
                                 # 覆盖下面的逐页拼接逻辑
                                 markdown_content = full_md
                         except Exception as e:
                             logger.warning(f"Concatenate markdown failed: {e}")
 
-                    # === 逐页保存与 JSON 收集 ===
+                    # === 逐页保存与 JSON 收集 (Fallback) ===
                     md_list_fallback = []
                     json_list = []
                     

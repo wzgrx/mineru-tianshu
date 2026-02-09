@@ -3,6 +3,10 @@
 # ============================================================================
 FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04 AS base
 
+# ✅ [关键] 替换为阿里云镜像源 (防止 apt-get 500/timeout 错误)
+RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list.d/ubuntu.sources && \
+    sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list.d/ubuntu.sources
+
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -19,8 +23,8 @@ RUN echo 'Acquire::http::Pipeline-Depth "0";' > /etc/apt/apt.conf.d/99custom && 
     echo 'Acquire::Retries "5";' >> /etc/apt/apt.conf.d/99custom && \
     echo 'Acquire::http::Timeout "120";' >> /etc/apt/apt.conf.d/99custom
 
-# 1. 安装全量系统依赖
-RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
+# 1. 安装全量系统依赖 (增加 || true 容错)
+RUN apt-get update || true && apt-get install -y --fix-missing --no-install-recommends \
     python3-pip python3-venv python3-dev \
     git wget curl vim build-essential \
     libgomp1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgl1 \
@@ -46,11 +50,13 @@ WORKDIR /tmp
 COPY backend/requirements.txt /tmp/requirements.txt
 
 # Step 1: 安装 vLLM (使用用户指定版本 0.15.1+)
+# ✅ 增加清华源 fallback
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing vLLM..." && \
     pip install "vllm>=0.15.1" \
     --retries 10 --timeout 120 \
     --extra-index-url https://download.pytorch.org/whl/cu130 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
     --break-system-packages
 
 # Step 2: 安装 PaddlePaddle (使用用户指定版本 3.3.0)
@@ -62,11 +68,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Step 3: 安装常规依赖
 # ✅ [修复] grep 仅过滤 paddlepaddle 框架，保留 paddleocr
-# 原来的 "grep -vE 'torch|paddle|vllm'" 会把 paddleocr 也删掉，导致报错
+# 原来的 "grep -vE 'torch|paddle|vllm'" 会把 paddleocr 也删掉，导致后续 import 失败
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing dependencies..." && \
     cat /tmp/requirements.txt | grep -vE "torch|paddlepaddle|vllm" > /tmp/cleaned_requirements.txt && \
     pip install -r /tmp/cleaned_requirements.txt \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
     --retries 10 --timeout 120 \
     --break-system-packages
 
@@ -75,16 +82,19 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing MinerU Core..." && \
     pip install "mineru[core]>=2.7.6" --no-deps \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
     --retries 10 --timeout 120 \
     --break-system-packages
 
 # Step 5: 强制“嫁接”正确的依赖版本 (Conflict-Free Fix)
 # ✅ [关键修复] 使用 doclayout-yolo 0.0.4 配合 albumentations 2.x
-# 同时卸载可能被自动安装的 GUI 版 opencv-python，只保留 headless 版
+# ✅ [新增] 卸载可能被自动安装的 GUI 版 opencv-python，只保留 headless 版
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Patching dependencies for MinerU/YOLO compat..." && \
-    pip install doclayout-yolo==0.0.4 --no-deps --break-system-packages && \
-    pip install "albumentations>=2.0.8" "albucore>=0.0.20" --break-system-packages && \
+    pip install doclayout-yolo==0.0.4 --no-deps --break-system-packages \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip install "albumentations>=2.0.8" "albucore>=0.0.20" --break-system-packages \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple && \
     pip uninstall -y opencv-python || true
 
 # Step 6: 验证环境

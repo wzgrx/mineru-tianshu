@@ -3,7 +3,6 @@
 # ============================================================================
 FROM nvidia/cuda:13.0.2-cudnn-devel-ubuntu24.04 AS base
 
-# 保持默认非交互设置
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -12,11 +11,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH \
     TORCH_CUDA_ARCH_LIST="9.0;10.0;12.0"
 
-# ❌ 【删除换源命令】：不再使用阿里云/腾讯云，直接用官方源，配合您的 Clash 网络
-# RUN sed -i ... 
+# ✅ [关键] 配置 APT 网络防御机制
+# 解决 Clash 透明代理下 apt-get update 报 502/Hash Sum Mismatch 的问题
+RUN echo 'Acquire::http::Pipeline-Depth "0";' > /etc/apt/apt.conf.d/99custom && \
+    echo 'Acquire::http::No-Cache "true";' >> /etc/apt/apt.conf.d/99custom && \
+    echo 'Acquire::BrokenProxy "true";' >> /etc/apt/apt.conf.d/99custom && \
+    echo 'Acquire::Retries "5";' >> /etc/apt/apt.conf.d/99custom && \
+    echo 'Acquire::http::Timeout "120";' >> /etc/apt/apt.conf.d/99custom
 
-# 1. 安装系统依赖
-# 添加 --fix-missing 以防止网络波动导致的构建失败
+# 1. 安装全量系统依赖
+# 保留了 LibreOffice 等大包，利用上面的网络配置确保下载成功
 RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     python3-pip python3-venv python3-dev \
     git wget curl vim build-essential \
@@ -33,9 +37,6 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
 RUN ln -sf /usr/bin/python3.12 /usr/bin/python && \
     ln -sf /usr/bin/python3.12 /usr/bin/python3
 
-# ❌ 【删除 Pip 升级】：避免系统权限冲突报错
-# RUN python -m pip install --upgrade pip ...
-
 # ============================================================================
 # Stage 2: 依赖安装
 # ============================================================================
@@ -44,11 +45,11 @@ FROM base AS dependencies
 WORKDIR /tmp
 COPY backend/requirements.txt /tmp/requirements.txt
 
-# Step 1: 安装 vLLM
-# 使用 --break-system-packages 允许在系统环境安装
+# Step 1: 安装 vLLM (增加重试参数)
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing vLLM..." && \
     pip install "vllm>=0.15.1" \
+    --retries 10 --timeout 120 \
     --extra-index-url https://download.pytorch.org/whl/cu130 \
     --extra-index-url https://download.pytorch.org/whl/nightly/cu130 \
     --break-system-packages
@@ -59,29 +60,38 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     (pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu130/ --break-system-packages || \
      pip install --pre paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/nightly/cu130/ --break-system-packages)
 
-# Step 3: 安装其他依赖
-# ❌ 去掉国内 pip 源，直接走默认源（Clash 加速）
+# Step 3: 安装常规依赖
+# ⚠️ 注意：确保 requirements.txt 中已经删除了 doclayout-yolo
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing dependencies..." && \
     cat /tmp/requirements.txt | grep -vE "torch|paddle|vllm" > /tmp/cleaned_requirements.txt && \
     pip install -r /tmp/cleaned_requirements.txt \
+    --retries 10 --timeout 120 \
     --break-system-packages
 
-# Step 4: 安装 MinerU
+# Step 4: 安装 MinerU Core (绕过依赖检查)
+# ⚠️ 核心操作：使用 --no-deps 防止 pip 读取 pyproject.toml 并报错
 RUN --mount=type=cache,target=/root/.cache/pip \
-    echo "Installing MinerU..." && \
+    echo "Installing MinerU Core..." && \
     pip install "mineru[core]>=2.7.6" --no-deps \
+    --retries 10 --timeout 120 \
     --break-system-packages
 
-# Step 5: 补齐工具
+# Step 5: 强制“嫁接”正确的依赖版本
+# ⚠️ 核心操作：手动安装兼容的 doclayout 版本和 albumentations
+RUN --mount=type=cache,target=/root/.cache/pip \
+    echo "Patching dependencies..." && \
+    pip install doclayout-yolo==0.0.2b1 --no-deps --break-system-packages && \
+    pip install "albumentations>=1.3.1,<1.4.0" "albucore>=0.0.13,<0.0.17" --break-system-packages
+
+# Step 6: 补齐工具
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install paddleocr[doc-parser] \
     transformers==4.57.6 tokenizers>=0.21.0 \
     fastapi uvicorn litserve aiohttp \
-    'albumentations>=1.3.1,<1.4.0' 'albucore>=0.0.13,<0.0.17' \
     --break-system-packages
 
-# Step 6: 验证
+# Step 7: 验证环境
 RUN python -c "import sys; print('Python:', sys.version)" && \
     python -c "import torch; print('✅ PyTorch:', torch.__version__)"
 

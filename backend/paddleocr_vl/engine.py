@@ -1,8 +1,13 @@
 """
-PaddleOCR 统一解析引擎 (最终修复版)
-支持: PaddleOCR-VL (v1/v1.5), PP-OCRv5, PP-StructureV3, PP-ChatOCRv4
+PaddleOCR 统一解析引擎 (适配 PaddleOCR 3.x / VL 1.5)
+支持模型:
+1. PaddleOCR-VL (v1 / v1.5) - 多模态文档理解，支持跨页表格合并
+2. PP-OCRv5 - 高精度纯文本识别 (支持 109 种语言)
+3. PP-StructureV3 - 版面分析与表格还原
+4. PP-ChatOCRv4 - 智能信息提取 (基础视觉模式)
 """
 import os
+import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from threading import Lock
@@ -12,10 +17,31 @@ import numpy as np
 # 尝试导入必要的库
 try:
     import paddle
-    from paddleocr import PaddleOCR, PPStructure, PaddleOCRVL
-    import fitz # PyMuPDF
+    # 基础 OCR
+    from paddleocr import PaddleOCR
+    # 3.x 新增/更新的类
+    try:
+        from paddleocr import PaddleOCRVL
+    except ImportError:
+        PaddleOCRVL = None
+        logger.warning("⚠️ PaddleOCRVL not found. Please upgrade paddleocr>=2.9.1")
+
+    try:
+        from paddleocr import PPStructureV3
+    except ImportError:
+        PPStructureV3 = None
+        # 尝试使用旧版兼容
+        from paddleocr import PPStructure
+        logger.warning("⚠️ PPStructureV3 class not found, using PPStructure compatibility mode.")
+
+    try:
+        from paddleocr import PPChatOCRv4Doc
+    except ImportError:
+        PPChatOCRv4Doc = None
+        
+    import fitz # PyMuPDF, 用于 PDF 转图片
 except ImportError as e:
-    logger.error(f"❌ Missing dependencies: {e}. Please run: pip install paddleocr>=2.9.1 pymupdf")
+    logger.error(f"❌ Missing dependencies: {e}. Please run: pip install 'paddleocr>=2.9.1' pymupdf")
     raise
 
 class PaddleOCREngine:
@@ -65,9 +91,8 @@ class PaddleOCREngine:
             logger.warning(f"⚠️ Failed to set paddle device: {e}")
 
     def _get_model(self, model_type: str, lang: str = 'ch'):
-        """
-        根据类型和语言懒加载模型实例
-        """
+        """根据类型和语言懒加载模型实例"""
+        # 缓存键
         cache_key = f"{model_type}_{lang}"
         if cache_key in self._models: return self._models[cache_key]
 
@@ -78,80 +103,91 @@ class PaddleOCREngine:
             instance = None
             try:
                 # =========================================================
-                # 1. PaddleOCR-VL (多模态大模型)
+                # 1. PaddleOCR-VL 系列 (v1 / v1.5)
                 # =========================================================
                 if 'paddleocr-vl' in model_type and 'vllm' not in model_type:
+                    if PaddleOCRVL is None:
+                        raise ImportError("PaddleOCRVL not available.")
+                    
+                    # 版本判断
                     ver = 'v1.5' # 默认最新
-                    custom_model_dir = None
-                    
-                    # 判断版本并获取对应的离线模型路径（如果有）
-                    if '0.9b' in model_type and '1.5' not in model_type: 
+                    if '0.9b' in model_type and '1.5' not in model_type:
                         ver = 'v1'
-                        custom_model_dir = os.getenv("PADDLEOCR_VL_V1_DIR")
-                    else:
-                        custom_model_dir = os.getenv("PADDLEOCR_VL_V1_5_DIR")
                     
-                    logger.info(f"   🚀 Initializing PaddleOCR-VL (Version: {ver})")
-                    if custom_model_dir:
-                        logger.info(f"   📂 Using offline model at: {custom_model_dir}")
-
-                    # 构造参数字典
-                    vl_kwargs = {
-                        "pipeline_version": ver,
-                        "use_doc_orientation_classify": True,
-                        "use_doc_unwarping": True,
-                        "use_layout_detection": True
-                    }
-                    # 如果配置了离线路径，尝试传递给模型 (取决于 PaddleOCR 版本支持情况)
-                    # 注意：如果 paddleocr 库版本还不支持 custom_model_dir，可能需要依赖默认挂载路径
-                    if custom_model_dir and os.path.exists(custom_model_dir):
-                        # 尝试将路径传递给核心参数 (需确认 paddleocr API)
-                        # 这里假设模型会自动从标准路径加载，或者通过 det_model_dir 等细分参数控制
-                        # 对于 Pipeline 模式，通常需要指定 task_path 或 model_dir
-                        # 这是一个通用尝试：
-                        vl_kwargs["models_dir"] = custom_model_dir 
-
-                    instance = PaddleOCRVL(**vl_kwargs)
-                
-                # =========================================================
-                # 2. PP-Structure (版面分析/表格)
-                # =========================================================
-                elif 'pp-structure' in model_type or 'pp-chatocr' in model_type:
-                    logger.info("   🏗️ Initializing PP-StructureV3")
-                    instance = PPStructure(
-                        show_log=False, 
-                        image_orientation=True,
-                        layout=True,
-                        table=True, 
-                        use_gpu=self.use_gpu,
-                        gpu_id=self.gpu_id,
-                        lang='ch' if lang=='auto' else lang,
-                        structure_version='PP-StructureV3'
+                    logger.info(f"   🚀 Mode: PaddleOCR-VL (Version: {ver})")
+                    
+                    # 初始化参数 (启用文档方向分类和纠偏)
+                    instance = PaddleOCRVL(
+                        pipeline_version=ver,
+                        use_doc_orientation_classify=True,
+                        use_doc_unwarping=True,
+                        use_layout_detection=True
                     )
-                
+
                 # =========================================================
-                # 3. PP-OCR (纯文本识别)
+                # 2. PP-StructureV3 (版面分析)
+                # =========================================================
+                elif 'pp-structure' in model_type:
+                    logger.info("   🏗️ Mode: PP-StructureV3")
+                    if PPStructureV3:
+                        instance = PPStructureV3(
+                            use_doc_orientation_classify=True,
+                            use_doc_unwarping=True,
+                            use_gpu=self.use_gpu,
+                            lang='ch' if lang=='auto' else lang
+                        )
+                    else:
+                        # 降级兼容旧版
+                        from paddleocr import PPStructure
+                        instance = PPStructure(
+                            show_log=False,
+                            image_orientation=True,
+                            structure_version='PP-StructureV3',
+                            use_gpu=self.use_gpu,
+                            lang='ch' if lang=='auto' else lang
+                        )
+
+                # =========================================================
+                # 3. PP-ChatOCRv4 (智能提取)
+                # =========================================================
+                elif 'pp-chatocr' in model_type:
+                    logger.info("   💬 Mode: PP-ChatOCRv4")
+                    if PPChatOCRv4Doc:
+                        # ChatOCR 基础初始化，Visual Predict 不需要 key
+                        instance = PPChatOCRv4Doc(
+                            use_doc_orientation_classify=True,
+                            use_doc_unwarping=True
+                        )
+                    else:
+                        logger.warning("⚠️ PPChatOCRv4Doc not found. Falling back to PP-Structure.")
+                        from paddleocr import PPStructure
+                        instance = PPStructure(structure_version='PP-StructureV3')
+
+                # =========================================================
+                # 4. PP-OCRv5 (通用 OCR)
                 # =========================================================
                 else: 
-                    logger.info("   ⚡ Initializing PP-OCRv5/v4")
+                    logger.info("   ⚡ Mode: PP-OCRv5")
+                    # PaddleOCR 3.x 会自动下载最新的 v4/v5 模型
                     instance = PaddleOCR(
                         use_angle_cls=True,
+                        use_doc_orientation_classify=True,
                         lang='ch' if lang=='auto' else lang,
                         use_gpu=self.use_gpu,
-                        gpu_id=self.gpu_id,
                         show_log=False,
-                        ocr_version='PP-OCRv4' 
+                        ocr_version='PP-OCRv4' # v4 tag 兼容 v5
                     )
                 
                 self._models[cache_key] = instance
-                logger.info(f"✅ Model {model_type} loaded successfully")
                 return instance
             except Exception as e:
                 logger.error(f"❌ Load model failed: {e}")
                 raise
 
     def parse(self, file_path: str, output_path: str, **kwargs) -> Dict[str, Any]:
-        """执行解析任务"""
+        """
+        统一解析入口
+        """
         file_path = Path(file_path)
         output_path = Path(output_path)
         output_path.mkdir(parents=True, exist_ok=True)
@@ -160,31 +196,96 @@ class PaddleOCREngine:
         lang = kwargs.get('lang', 'ch')
         
         model = self._get_model(model_type, lang)
+        
         markdown_content = ""
         json_data = {}
 
         try:
-            # === 分支 A: PaddleOCR-VL (原生支持 PDF/图片) ===
-            if 'paddleocr-vl' in model_type and 'vllm' not in model_type:
-                res = model.predict(str(file_path))
-                if not isinstance(res, list): res = [res]
+            # === 分支 A: 产线类模型 (PaddleOCR-VL, StructureV3, ChatOCR) ===
+            # 这些模型原生支持 .predict(input=path) 且支持 PDF
+            if ('paddleocr-vl' in model_type and 'vllm' not in model_type) or \
+               ('pp-structure' in model_type) or \
+               ('pp-chatocr' in model_type and PPChatOCRv4Doc):
                 
-                md_list = []
-                json_list = []
-                for p in res:
-                    if hasattr(p, 'markdown'): md_list.append(p.markdown)
-                    elif isinstance(p, str): md_list.append(p)
+                # 1. ChatOCR 特殊处理
+                if 'pp-chatocr' in model_type and PPChatOCRv4Doc and isinstance(model, PPChatOCRv4Doc):
+                    logger.info("   Running ChatOCR visual_predict...")
+                    # visual_predict 返回视觉信息，不进行 LLM 对话
+                    res = model.visual_predict(str(file_path))
+                    markdown_content = "> PP-ChatOCRv4 Visual Analysis Completed.\n> (To ask questions, configure LLM/API Key)"
+                    json_data = {"visual_info": str(res)} # 结果较复杂，暂存字符串
                     
-                    if hasattr(p, 'json'): json_list.append(p.json)
-                    elif hasattr(p, 'res'): json_list.append(p.res)
-                
-                markdown_content = "\n\n---\n\n".join([str(m) for m in md_list])
-                json_data = {"pages": json_list}
+                # 2. VL 和 StructureV3 标准处理
+                else:
+                    logger.info(f"   Predicting with {model_type}...")
+                    res = model.predict(input=str(file_path))
+                    
+                    # 转换为列表
+                    pages_res = list(res) if hasattr(res, '__iter__') else [res]
+                    
+                    # === 关键优化：使用官方 API 进行页面重构/合并 ===
+                    # PaddleOCR-VL 1.5 支持 restructure_pages
+                    if 'paddleocr-vl' in model_type and hasattr(model, 'restructure_pages'):
+                         try:
+                             logger.info("   Restructuring pages (merging tables)...")
+                             # merge_table=True 合并跨页表格
+                             pages_res = model.restructure_pages(pages_res, merge_table=True)
+                         except Exception as e:
+                             logger.warning(f"Restructure pages failed: {e}")
 
-            # === 分支 B: 其他模型 (手动 PDF 转图片) ===
+                    # PP-StructureV3 支持 concatenate_markdown_pages
+                    elif 'pp-structure' in model_type and hasattr(model, 'concatenate_markdown_pages'):
+                        try:
+                            # 提取 markdown 信息列表
+                            md_list = [p.markdown for p in pages_res if hasattr(p, 'markdown')]
+                            if md_list:
+                                logger.info("   Concatenating markdown pages...")
+                                full_md = model.concatenate_markdown_pages(md_list)
+                                # 覆盖下面的逐页拼接逻辑
+                                markdown_content = full_md
+                        except Exception as e:
+                            logger.warning(f"Concatenate markdown failed: {e}")
+
+                    # === 逐页保存与 JSON 收集 ===
+                    md_list_fallback = []
+                    json_list = []
+                    
+                    for idx, p in enumerate(pages_res):
+                        # 尝试使用 SDK 自带保存方法 (save_to_markdown/json)
+                        # 这会保存图片等资源到 output_path
+                        if hasattr(p, 'save_to_markdown'):
+                            p.save_to_markdown(str(output_path))
+                        
+                        # 收集内容用于返回
+                        if hasattr(p, 'markdown'): md_list_fallback.append(p.markdown)
+                        elif isinstance(p, dict) and 'markdown' in p: md_list_fallback.append(p['markdown'])
+                        
+                        if hasattr(p, 'json'): json_list.append(p.json)
+                        elif isinstance(p, dict): json_list.append(p)
+                    
+                    # 如果没有通过 concatenate_markdown_pages 生成内容，则使用 fallback 拼接
+                    if not markdown_content and md_list_fallback:
+                        # 尝试读取 SDK 保存的文件 (可能包含图片链接修正)
+                        saved_md_files = sorted(list(output_path.glob("*.md")))
+                        read_mds = []
+                        for f in saved_md_files:
+                            if f.name != "result.md": 
+                                read_mds.append(f.read_text(encoding='utf-8'))
+                        
+                        if read_mds:
+                            markdown_content = "\n\n---\n\n".join(read_mds)
+                        else:
+                            markdown_content = "\n\n---\n\n".join([str(m) for m in md_list_fallback])
+
+                    json_data = {"pages": json_list}
+
+            # === 分支 B: 纯 OCR 模型 (PP-OCRv5) ===
             else:
+                logger.info("   Running PP-OCRv5...")
                 from PIL import Image
                 imgs = []
+                
+                # 手动 PDF 转图片 (PP-OCR 的 predict 方法对 PDF 支持可能有限)
                 if file_path.suffix.lower() == '.pdf':
                     doc = fitz.open(file_path)
                     for page in doc:
@@ -194,42 +295,31 @@ class PaddleOCREngine:
                 else:
                     imgs.append(str(file_path))
 
-                full_res = []
                 full_md = []
+                raw_res = []
 
                 for i, img_input in enumerate(imgs):
-                    page_md = f"## Page {i+1}\n\n"
+                    # 使用 ocr 接口
+                    res = model.ocr(img_input, cls=True)
+                    page_md = f"## Page {i+1}\n"
                     
-                    if 'pp-structure' in model_type or 'pp-chatocr' in model_type:
-                        res = model(img_input)
-                        if isinstance(res, tuple): res = res[0]
-                        if res:
-                            for region in res:
-                                r_type = region.get('type', '')
-                                r_res = region.get('res', {})
-                                if r_type == 'table': 
-                                    page_md += f"\n{r_res.get('html', '')}\n"
-                                else:
-                                    lines = r_res if isinstance(r_res, list) else [r_res]
-                                    for line in lines:
-                                        if isinstance(line, dict): page_md += line.get('text', '') + "\n"
-                        full_res.append(str(res))
-                    else:
-                        res = model.ocr(img_input, cls=True)
-                        if res and res[0]:
-                            for line in res[0]:
-                                text = line[1][0]
-                                page_md += text + "\n"
-                        full_res.append(str(res))
+                    if res and res[0]:
+                        for line in res[0]:
+                            # line: [bbox, (text, score)]
+                            text = line[1][0]
+                            page_md += text + "\n"
                     
                     full_md.append(page_md)
-
+                    raw_res.append(str(res))
+                
                 markdown_content = "\n\n---\n\n".join(full_md)
-                json_data = {"raw_results": full_res}
+                json_data = {"ocr_raw": raw_res}
 
-            if not markdown_content: markdown_content = "(No result)"
+            # === 最终保存 ===
+            if not markdown_content: markdown_content = "> No content detected."
             (output_path / "result.md").write_text(markdown_content, encoding="utf-8")
             
+            # 保存 JSON
             try:
                 import json
                 class NpEncoder(json.JSONEncoder):
@@ -245,6 +335,8 @@ class PaddleOCREngine:
 
         except Exception as e:
             logger.error(f"Processing failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             raise
 
     def cleanup(self):

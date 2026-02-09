@@ -4,6 +4,7 @@
 # 更新说明:
 # 1. 已添加 network: host 解决构建时的网络超时/502问题
 # 2. 移除了 cache_from 以强制本地构建
+# 3. 优化了 PaddleOCR 模型挂载路径
 
 name: tianshu
 
@@ -146,12 +147,16 @@ services:
       - "${WORKER_PORT:-8001}:8001"
     volumes:
       # ✅ PaddleOCR-VL 两个版本的特定挂载 (WSL2路径 -> 容器路径)
+      # 请确保本地 D:\aiworkspace\models\paddlex\PaddleOCR-VL[-1.5] 目录存在且包含模型文件
       - /mnt/d/aiworkspace/models/paddlex/PaddleOCR-VL:/app/models/paddleocr-vl-v1:rw
       - /mnt/d/aiworkspace/models/paddlex/PaddleOCR-VL-1.5:/app/models/paddleocr-vl-v1.5:rw
       
+      # ✅ 关键：将本地 PaddleOCR 通用模型库挂载到容器默认缓存目录
+      # 这样 PaddleOCR 库启动时能直接找到离线模型，不再尝试下载
+      - /mnt/d/aiworkspace/models/paddleocr:/root/.paddleocr:rw
+
       # ✅ 其他常规挂载
       - /mnt/d/aiworkspace/models/mineru:/app/models/mineru:rw
-      - /mnt/d/aiworkspace/models/paddleocr:/app/models/paddleocr:rw
       - /mnt/d/aiworkspace/models/paddlex:/root/.paddlex:rw
       - /mnt/d/aiworkspace/models/huggingface:/root/.cache/huggingface:rw
       - /mnt/d/aiworkspace/models/modelscope:/root/.cache/modelscope:rw
@@ -176,7 +181,7 @@ services:
       - HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}
       - PDF_SPLIT_ENABLED=${PDF_SPLIT_ENABLED:-true}
       
-      # ✅ PaddleOCR 路径配置
+      # ✅ PaddleOCR 路径配置 (供自定义逻辑参考，虽然 VL SDK 不直接支持 models_dir)
       - PADDLEOCR_VL_V1_DIR=/app/models/paddleocr-vl-v1
       - PADDLEOCR_VL_V1_5_DIR=/app/models/paddleocr-vl-v1.5
       

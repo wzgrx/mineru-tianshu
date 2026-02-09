@@ -1,8 +1,13 @@
 """
-PaddleOCR 统一解析引擎 (最终修复版)
-支持: PaddleOCR-VL (v1/v1.5), PP-OCRv5, PP-StructureV3, PP-ChatOCRv4
+PaddleOCR 统一解析引擎 (最终修复版 - 适配 PaddleOCR 3.0+)
+支持模型:
+1. PaddleOCR-VL (v1 / v1.5) - 多模态文档理解
+2. PP-OCRv5 - 高精度纯文本识别 (支持 109 种语言)
+3. PP-StructureV3 - 版面分析与表格还原 (使用新版 API)
+4. PP-ChatOCRv4 - 智能信息提取 (基础视觉模式)
 """
 import os
+import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from threading import Lock
@@ -14,7 +19,8 @@ try:
     import paddle
     # 基础 OCR
     from paddleocr import PaddleOCR
-    # 3.x 新增/更新的类
+    
+    # 尝试导入 3.x 新增/更新的类
     try:
         from paddleocr import PaddleOCRVL
     except ImportError:
@@ -87,6 +93,7 @@ class PaddleOCREngine:
 
     def _get_model(self, model_type: str, lang: str = 'ch'):
         """根据类型和语言懒加载模型实例"""
+        # 缓存键
         cache_key = f"{model_type}_{lang}"
         if cache_key in self._models: return self._models[cache_key]
 
@@ -101,7 +108,7 @@ class PaddleOCREngine:
                 # =========================================================
                 if 'paddleocr-vl' in model_type and 'vllm' not in model_type:
                     if PaddleOCRVL is None:
-                        raise ImportError("PaddleOCRVL not available.")
+                        raise ImportError("PaddleOCRVL not available. Check paddleocr version.")
                     
                     # 版本判断
                     ver = 'v1.5' # 默认最新
@@ -110,8 +117,7 @@ class PaddleOCREngine:
                     
                     logger.info(f"   🚀 Mode: PaddleOCR-VL (Version: {ver})")
                     
-                    # 【关键修复】移除不支持的 models_dir 参数
-                    # 模型加载依赖 ~/.paddleocr 默认路径或 Docker 挂载的 /root/.paddleocr
+                    # 【修复】移除不支持的 models_dir 参数，仅使用官方支持的参数
                     instance = PaddleOCRVL(
                         pipeline_version=ver,
                         use_doc_orientation_classify=True,
@@ -163,6 +169,7 @@ class PaddleOCREngine:
                 # =========================================================
                 else: 
                     logger.info("   ⚡ Mode: PP-OCRv5")
+                    # PaddleOCR 3.x 会自动下载最新的 v4/v5 模型
                     instance = PaddleOCR(
                         use_angle_cls=True,
                         use_doc_orientation_classify=True,
@@ -188,6 +195,7 @@ class PaddleOCREngine:
         
         model_type = kwargs.get('model_type', 'paddleocr-vl')
         lang = kwargs.get('lang', 'ch')
+        
         model = self._get_model(model_type, lang)
         
         markdown_content = ""
@@ -203,6 +211,7 @@ class PaddleOCREngine:
                 # 1. ChatOCR 特殊处理
                 if 'pp-chatocr' in model_type and PPChatOCRv4Doc and isinstance(model, PPChatOCRv4Doc):
                     logger.info("   Running ChatOCR visual_predict...")
+                    # visual_predict 返回视觉信息，不进行 LLM 对话
                     res = model.visual_predict(str(file_path))
                     markdown_content = "> PP-ChatOCRv4 Visual Analysis Completed.\n> (To ask questions, configure LLM/API Key)"
                     json_data = {"visual_info": str(res)} 
@@ -212,7 +221,7 @@ class PaddleOCREngine:
                     logger.info(f"   Predicting with {model_type}...")
                     res = model.predict(input=str(file_path))
                     
-                    # 转换为列表
+                    # 转换为列表 (如果只返回单个结果)
                     pages_res = list(res) if hasattr(res, '__iter__') else [res]
                     
                     # === 关键优化：使用官方 API 进行页面重构/合并 ===
@@ -220,6 +229,7 @@ class PaddleOCREngine:
                     if 'paddleocr-vl' in model_type and hasattr(model, 'restructure_pages'):
                          try:
                              logger.info("   Restructuring pages (merging tables)...")
+                             # merge_table=True 合并跨页表格
                              pages_res = model.restructure_pages(pages_res, merge_table=True)
                          except Exception as e:
                              logger.warning(f"Restructure pages failed: {e}")
@@ -236,6 +246,7 @@ class PaddleOCREngine:
                             if md_list_struct:
                                 logger.info("   Concatenating markdown pages (StructureV3)...")
                                 full_md = model.concatenate_markdown_pages(md_list_struct)
+                                # 覆盖下面的逐页拼接逻辑
                                 markdown_content = full_md
                         except Exception as e:
                             logger.warning(f"Concatenate markdown failed: {e}")

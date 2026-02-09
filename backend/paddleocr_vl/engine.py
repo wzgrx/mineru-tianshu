@@ -7,7 +7,6 @@ PaddleOCR 统一解析引擎 (最终修复版 - 适配 PaddleOCR 3.0+)
 4. PP-ChatOCRv4 - 智能信息提取 (基础视觉模式)
 """
 import os
-import json
 from pathlib import Path
 from typing import Optional, Dict, Any
 from threading import Lock
@@ -117,7 +116,8 @@ class PaddleOCREngine:
                     
                     logger.info(f"   🚀 Mode: PaddleOCR-VL (Version: {ver})")
                     
-                    # 【修复】移除不支持的 models_dir 参数，仅使用官方支持的参数
+                    # 【关键修复】移除不支持的 models_dir 参数
+                    # 模型加载依赖 ~/.paddleocr 默认路径或 Docker 挂载的 /root/.paddleocr
                     instance = PaddleOCRVL(
                         pipeline_version=ver,
                         use_doc_orientation_classify=True,

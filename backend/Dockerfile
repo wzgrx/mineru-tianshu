@@ -12,7 +12,6 @@ ENV DEBIAN_FRONTEND=noninteractive \
     TORCH_CUDA_ARCH_LIST="9.0;10.0;12.0"
 
 # ✅ [关键] 配置 APT 网络防御机制
-# 解决 Clash 透明代理下 apt-get update 报 502/Hash Sum Mismatch 的问题
 RUN echo 'Acquire::http::Pipeline-Depth "0";' > /etc/apt/apt.conf.d/99custom && \
     echo 'Acquire::http::No-Cache "true";' >> /etc/apt/apt.conf.d/99custom && \
     echo 'Acquire::BrokenProxy "true";' >> /etc/apt/apt.conf.d/99custom && \
@@ -20,7 +19,6 @@ RUN echo 'Acquire::http::Pipeline-Depth "0";' > /etc/apt/apt.conf.d/99custom && 
     echo 'Acquire::http::Timeout "120";' >> /etc/apt/apt.conf.d/99custom
 
 # 1. 安装全量系统依赖
-# 保留了 LibreOffice 等大包，利用上面的网络配置确保下载成功
 RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     python3-pip python3-venv python3-dev \
     git wget curl vim build-essential \
@@ -45,8 +43,7 @@ FROM base AS dependencies
 WORKDIR /tmp
 COPY backend/requirements.txt /tmp/requirements.txt
 
-# Step 1: 安装 vLLM
-# ✅ [修正] RTX 5090 建议使用 0.6.0+ 版本，原 0.15.1 可能是笔误
+# Step 1: 安装 vLLM (RTX 5090 推荐 0.6.0+)
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing vLLM..." && \
     pip install "vllm>=0.6.0" \
@@ -60,9 +57,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     (pip install paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/ --break-system-packages || \
      pip install --pre paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/nightly/cu123/ --break-system-packages)
 
-# Step 3: 安装常规依赖
-# ⚠️ 注意：requirements.txt 中的 doclayout-yolo 和 albumentations 可能会被此步安装，
-# 但我们在 Step 5 会强制覆盖以确保版本正确
+# Step 3: 安装常规依赖 (此时包含 doclayout-yolo==0.0.4)
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing dependencies..." && \
     cat /tmp/requirements.txt | grep -vE "torch|paddle|vllm" > /tmp/cleaned_requirements.txt && \
@@ -70,8 +65,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     --retries 10 --timeout 120 \
     --break-system-packages
 
-# Step 4: 安装 MinerU Core (绕过依赖检查)
-# ⚠️ 核心操作：使用 --no-deps 防止 pip 读取 pyproject.toml 并自动降级我们的库
+# Step 4: 安装 MinerU Core (绕过依赖检查，防止降级)
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing MinerU Core..." && \
     pip install "mineru[core]>=2.7.6" --no-deps \
@@ -80,7 +74,6 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Step 5: 强制“嫁接”正确的依赖版本 (Conflict-Free Fix)
 # ✅ [关键修复] 使用 doclayout-yolo 0.0.4 配合 albumentations 2.x
-# 不再强制安装旧版 0.0.2b1 和 albumentations<1.4.0
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Patching dependencies for MinerU/YOLO compat..." && \
     pip install doclayout-yolo==0.0.4 --no-deps --break-system-packages && \

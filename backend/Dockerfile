@@ -45,23 +45,24 @@ FROM base AS dependencies
 WORKDIR /tmp
 COPY backend/requirements.txt /tmp/requirements.txt
 
-# Step 1: 安装 vLLM (增加重试参数)
+# Step 1: 安装 vLLM
+# ✅ [修正] RTX 5090 建议使用 0.6.0+ 版本，原 0.15.1 可能是笔误
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing vLLM..." && \
-    pip install "vllm>=0.15.1" \
+    pip install "vllm>=0.6.0" \
     --retries 10 --timeout 120 \
-    --extra-index-url https://download.pytorch.org/whl/cu130 \
-    --extra-index-url https://download.pytorch.org/whl/nightly/cu130 \
+    --extra-index-url https://download.pytorch.org/whl/cu124 \
     --break-system-packages
 
 # Step 2: 安装 PaddlePaddle
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing PaddlePaddle..." && \
-    (pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu130/ --break-system-packages || \
-     pip install --pre paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/nightly/cu130/ --break-system-packages)
+    (pip install paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/ --break-system-packages || \
+     pip install --pre paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/nightly/cu123/ --break-system-packages)
 
 # Step 3: 安装常规依赖
-# ⚠️ 注意：确保 requirements.txt 中已经删除了 doclayout-yolo
+# ⚠️ 注意：requirements.txt 中的 doclayout-yolo 和 albumentations 可能会被此步安装，
+# 但我们在 Step 5 会强制覆盖以确保版本正确
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing dependencies..." && \
     cat /tmp/requirements.txt | grep -vE "torch|paddle|vllm" > /tmp/cleaned_requirements.txt && \
@@ -70,30 +71,32 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     --break-system-packages
 
 # Step 4: 安装 MinerU Core (绕过依赖检查)
-# ⚠️ 核心操作：使用 --no-deps 防止 pip 读取 pyproject.toml 并报错
+# ⚠️ 核心操作：使用 --no-deps 防止 pip 读取 pyproject.toml 并自动降级我们的库
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing MinerU Core..." && \
     pip install "mineru[core]>=2.7.6" --no-deps \
     --retries 10 --timeout 120 \
     --break-system-packages
 
-# Step 5: 强制“嫁接”正确的依赖版本
-# ⚠️ 核心操作：手动安装兼容的 doclayout 版本和 albumentations
+# Step 5: 强制“嫁接”正确的依赖版本 (Conflict-Free Fix)
+# ✅ [关键修复] 使用 doclayout-yolo 0.0.4 配合 albumentations 2.x
+# 不再强制安装旧版 0.0.2b1 和 albumentations<1.4.0
 RUN --mount=type=cache,target=/root/.cache/pip \
-    echo "Patching dependencies..." && \
-    pip install doclayout-yolo==0.0.2b1 --no-deps --break-system-packages && \
-    pip install "albumentations>=1.3.1,<1.4.0" "albucore>=0.0.13,<0.0.17" --break-system-packages
+    echo "Patching dependencies for MinerU/YOLO compat..." && \
+    pip install doclayout-yolo==0.0.4 --no-deps --break-system-packages && \
+    pip install "albumentations>=2.0.8" "albucore>=0.0.20" --break-system-packages
 
 # Step 6: 补齐工具
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install paddleocr[doc-parser] \
+    pip install paddleocr[doc-parser]>=2.9.1 \
     transformers==4.57.6 tokenizers>=0.21.0 \
     fastapi uvicorn litserve aiohttp \
     --break-system-packages
 
 # Step 7: 验证环境
 RUN python -c "import sys; print('Python:', sys.version)" && \
-    python -c "import torch; print('✅ PyTorch:', torch.__version__)"
+    python -c "import torch; print('✅ PyTorch:', torch.__version__)" && \
+    python -c "import doclayout_yolo; print('✅ DocLayout-YOLO:', doclayout_yolo.__version__)"
 
 # ============================================================================
 # Stage 3: Application

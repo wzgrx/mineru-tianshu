@@ -1,23 +1,20 @@
-# MinerU-Server Backend Unified Requirements (Conflict-Free Verified)
-# ============================================================================
-# 适配 RTX 5090 + CUDA 13.0.2 + Python 3.12
-# 核心策略：解锁 Albumentations 以适配 doclayout-yolo 0.0.4
+# MinerU-Server Backend Unified Requirements
 # ============================================================================
 
-# --- 核心框架 (Dockerfile 单独处理，此处仅占位说明) ---
-# torch, paddlepaddle-gpu, vllm, mineru[core]
+# --- 核心框架 ---
+# torch, paddlepaddle-gpu, vllm 已经在 Dockerfile 中处理
 
-# --- 图像处理核心 ---
-paddleocr>=2.9.1
+# --- 图像处理 ---
+# 将 paddleocr 改为包含所有依赖的形式
+paddleocr[all]>=2.9.1
 PyMuPDF>=1.24.0
 Pillow>=11.0.0
 img2pdf>=0.5.0
 pikepdf>=9.0.0
 scikit-image>=0.25.0
-# ✅ [优化] 使用 headless 版本，更适合 Docker 环境，减少依赖库报错
 opencv-python-headless>=4.10.0
 
-# --- MinerU 核心依赖 ---
+# --- MinerU 核心 ---
 pdfminer.six>=20231228
 pypdfium2>=4.30.0
 pypdf>=5.6.0
@@ -32,32 +29,24 @@ shapely>=2.0.7
 pyclipper>=1.3.0
 omegaconf>=2.3.0
 dill>=0.3.8
-# ✅ [新增] 文件类型检测增强 (配合 Dockerfile 的 libmagic1)
 python-magic>=0.4.27
 filetype>=1.2.0
-# ✅ [优化] 使用 GPU 版 ONNX Runtime
 onnxruntime-gpu>=1.17.0
 
-# --- 关键冲突防御区 ---
-# ✅ [升级] 适配 doclayout-yolo 0.0.4，升级到 2.0.8+
+# --- 兼容性补丁 ---
 albumentations>=2.0.8
 albucore>=0.0.20
-
-# ✅ [显式安装] 直接指定版本，不再依赖 MinerU 自动拉取旧版
 doclayout-yolo==0.0.4
 ftfy>=6.1.0
 
-# --- 绘图 ---
+# --- 绘图 & 音视频 ---
 kiwisolver>=1.4.5
 matplotlib>=3.10.0
 contourpy>=1.3.0
-
-# --- 音视频 ---
 funasr>=1.2.7
 ffmpeg-python
 soundfile>=0.12.0
 imagehash>=4.3.0
-# ✅ [关键] 锁死 1.x 版本，防止 Numpy 2.0 炸坏 Pandas 和 Paddle
 numpy>=1.26.0,<2.0.0
 
 # --- 领域工具 ---
@@ -67,7 +56,7 @@ simple-lama-inpainting>=0.1.0
 huggingface-hub>=0.32.4
 modelscope>=1.26.0
 
-# --- Web 服务 & UI ---
+# --- Web & UI ---
 fastapi>=0.115.0
 uvicorn[standard]>=0.34.0
 python-multipart>=0.0.9
@@ -75,11 +64,10 @@ litserve==0.2.16
 aiohttp>=3.11.0
 requests>=2.32.0
 httpx>=0.27.0
-# ✅ [新增] WebUI 支持
 gradio==5.49.1
 gradio-pdf==0.0.22
 
-# --- 认证与存储 ---
+# --- 认证 & 存储 ---
 pyjwt>=2.9.0
 authlib>=1.3.0
 python3-saml>=1.16.0
@@ -102,3 +90,8 @@ jsonschema-specifications>=2023.12.1
 typing-extensions>=4.12.0
 setuptools>=75.0.0
 lxml>=5.3.0
+
+# --- 🔴 关键修复补丁 ---
+boto3>=1.34.0
+paddlex[ocr]>=3.0.0
+paddlepaddle-gpu>=2.6.0

@@ -6,11 +6,13 @@ MinerU Pipeline Engine
 import os
 import json
 import shutil
+import io
 from pathlib import Path
 from typing import Optional, Dict, Any
 from threading import Lock
 from loguru import logger
 import img2pdf
+from PIL import Image
 
 
 class MinerUPipelineEngine:
@@ -142,7 +144,48 @@ class MinerUPipelineEngine:
             if file_ext in [".png", ".jpg", ".jpeg", ".bmp", ".tiff"]:
                 logger.info(f"🖼️ Converting image to PDF: {file_path_obj.name}")
                 try:
-                    pdf_bytes = img2pdf.convert(file_bytes)
+                    # [修复开始]：处理带透明通道的图片
+                    image_data = file_bytes
+                    
+                    # 使用 Pillow 检查并处理图片
+                    try:
+                        with Image.open(io.BytesIO(file_bytes)) as img:
+                            # 检查是否包含透明通道 (RGBA) 或 P 模式包含透明信息
+                            has_transparency = False
+                            if img.mode in ('RGBA', 'LA'):
+                                has_transparency = True
+                            elif img.mode == 'P' and 'transparency' in img.info:
+                                has_transparency = True
+                            
+                            # 如果有透明度或不是 RGB 模式，进行转换
+                            if has_transparency or img.mode != 'RGB':
+                                if has_transparency:
+                                    logger.info(f"ℹ️ Detected transparency in {file_path_obj.name}, converting to RGB (white background)")
+                                    # 创建白色背景
+                                    bg = Image.new('RGB', img.size, (255, 255, 255))
+                                    # 处理 Alpha 混合
+                                    if img.mode == 'P':
+                                        img = img.convert('RGBA')
+                                    elif img.mode != 'RGBA':
+                                        img = img.convert('RGBA')
+                                    
+                                    # 使用 mask 粘贴前景
+                                    bg.paste(img, mask=img.split()[3])
+                                    img = bg
+                                else:
+                                    # 转换其他模式（如 CMYK）为 RGB
+                                    img = img.convert('RGB')
+                                
+                                # 转存为 JPEG 字节流 (JPEG 不支持透明，天然适合 PDF 转换)
+                                output_buffer = io.BytesIO()
+                                img.save(output_buffer, format='JPEG', quality=95)
+                                image_data = output_buffer.getvalue()
+                    except Exception as e:
+                        logger.warning(f"⚠️ Image preprocessing warning: {e}. Trying raw bytes.")
+
+                    pdf_bytes = img2pdf.convert(image_data)
+                    # [修复结束]
+
                     # 临时保存这个转换后的 PDF，因为 MinerU 内部有些逻辑依赖文件名
                     # 为了避免并发冲突，使用原始文件名但加 .pdf 后缀
                     temp_pdf_name = f"{file_stem}.pdf"

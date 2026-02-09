@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tianshu - Docker Entrypoint Script
-# Smart Model Management for RTX 5090 (Auto-Download & Config)
+# Container startup script for initialization and health checks
 
 set -e
 
@@ -12,148 +12,102 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Log functions
-log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
 
 # ============================================================================
-# 1. 基础环境检查
+# Environment check
 # ============================================================================
 check_environment() {
     local service_type=$1
+
     log_info "Checking environment configuration..."
+
+    # Check Python version
+    PYTHON_VERSION=$(python --version 2>&1 | awk '{print $2}')
+    log_info "Python version: $PYTHON_VERSION"
 
     # Check CUDA
     if command -v nvidia-smi &> /dev/null; then
         log_success "NVIDIA GPU detected"
+        nvidia-smi --query-gpu=gpu_name,driver_version,memory.total --format=csv,noheader
     else
         log_warning "NVIDIA GPU or driver not detected"
     fi
 
-    # Check JWT (API only)
+    # Check necessary environment variables (only API Server needs JWT)
     if [ "$service_type" != "worker" ] && [ "$service_type" != "mcp" ]; then
         if [ -z "$JWT_SECRET_KEY" ]; then
             log_error "JWT_SECRET_KEY is not set! Please configure in .env"
             exit 1
         fi
+
+        if [ "$JWT_SECRET_KEY" = "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_IN_PRODUCTION" ]; then
+            log_warning "JWT_SECRET_KEY is using default value, must be changed for production!"
+        fi
+    fi
+
+    # ✅ [新增] vLLM 显存检查
+    if [ "$service_type" = "worker" ]; then
+        if [ -z "$VLLM_GPU_MEMORY_UTILIZATION" ]; then
+            log_warning "VLLM_GPU_MEMORY_UTILIZATION not set. Defaulting to 0.7 to prevent OOM."
+            export VLLM_GPU_MEMORY_UTILIZATION=0.7
+        else
+            log_info "vLLM Memory Limit: $VLLM_GPU_MEMORY_UTILIZATION"
+        fi
     fi
 }
 
 # ============================================================================
-# 2. 目录初始化
+# Directory initialization
 # ============================================================================
 initialize_directories() {
     log_info "Initializing directory structure..."
+
     mkdir -p /app/models
     mkdir -p /app/data/uploads
     mkdir -p /app/data/output
     mkdir -p /app/logs
-    # PaddleOCR 缓存目录
-    mkdir -p /root/.paddlex
+
+    log_success "Directory structure initialized"
 }
 
 # ============================================================================
-# 3. 智能模型管理 (核心逻辑：检测 -> 下载 -> 配置)
+# MinerU Configuration Generator
 # ============================================================================
-manage_models() {
-    log_info "Starting Smart Model Management..."
+generate_mineru_config() {
+    log_info "Generating MinerU configuration (magic-pdf.json)..."
 
-    # 容器内挂载点 (对应宿主机 D:\aiworkspace\models\mineru)
-    MINERU_DIR="/app/models/mineru"
-    
-    # 确保目录存在
-    if [ ! -d "$MINERU_DIR" ]; then
-        mkdir -p "$MINERU_DIR"
-    fi
+    # 这里的路径必须与 docker-compose.yml 中的挂载路径一致
+    # 我们挂载的是: - /mnt/d/.../mineru:/app/models/mineru
+    MODEL_DIR="/app/models/mineru"
 
-    # ---------------------------------------------------------
-    # A. 检测现有模型 (支持多种目录层级结构)
-    # ---------------------------------------------------------
-    MODEL_READY=false
-    FINAL_MODEL_PATH=""
-
-    # 路径策略 1: 标准目录结构 (D:\...\mineru\PDF-Extract-Kit-1.0\models\Layout\...)
-    if [ -f "$MINERU_DIR/PDF-Extract-Kit-1.0/models/Layout/doclayout_yolo/best.pt" ]; then
-        FINAL_MODEL_PATH="$MINERU_DIR/PDF-Extract-Kit-1.0/models"
-        MODEL_READY=true
-        log_success "Found models in sub-directory: $FINAL_MODEL_PATH"
-        
-    # 路径策略 2: ModelScope 缓存结构 (opendatalab/...)
-    elif [ -f "$MINERU_DIR/opendatalab/PDF-Extract-Kit-1.0/models/Layout/doclayout_yolo/best.pt" ]; then
-        FINAL_MODEL_PATH="$MINERU_DIR/opendatalab/PDF-Extract-Kit-1.0/models"
-        MODEL_READY=true
-        log_success "Found models in ModelScope cache dir: $FINAL_MODEL_PATH"
-
-    # 路径策略 3: 直接解压结构 (D:\...\mineru\models\Layout\...)
-    elif [ -f "$MINERU_DIR/models/Layout/doclayout_yolo/best.pt" ]; then
-        FINAL_MODEL_PATH="$MINERU_DIR/models"
-        MODEL_READY=true
-        log_success "Found models in models dir: $FINAL_MODEL_PATH"
-        
-    # 路径策略 4: 扁平结构 (D:\...\mineru\Layout\...)
-    elif [ -f "$MINERU_DIR/Layout/doclayout_yolo/best.pt" ]; then
-        FINAL_MODEL_PATH="$MINERU_DIR"
-        MODEL_READY=true
-        log_success "Found models in root dir: $FINAL_MODEL_PATH"
-    fi
-
-    # ---------------------------------------------------------
-    # B. 如果没找到模型，执行自动下载 (使用 ModelScope)
-    # ---------------------------------------------------------
-    if [ "$MODEL_READY" = false ]; then
-        log_warning "Models missing in $MINERU_DIR"
-        log_info "🚀 Starting auto-download from ModelScope (China)..."
-        log_info "Target Directory: $MINERU_DIR (Mapped to D:\aiworkspace\models\mineru)"
-        
-        # 使用 Python 调用 modelscope 下载，cache_dir 指向挂载目录
-        python3 -c "
-import os
-try:
-    from modelscope.hub.snapshot_download import snapshot_download
-    print('Downloading PDF-Extract-Kit-1.0...')
-    # cache_dir 指定为挂载目录，这样会下载到 D 盘
-    path = snapshot_download('opendatalab/PDF-Extract-Kit-1.0', cache_dir='$MINERU_DIR')
-    print(f'Download success: {path}')
-except ImportError:
-    print('Error: ModelScope library not found!')
-    exit(1)
-except Exception as e:
-    print(f'Error: Download failed: {e}')
-    exit(1)
-"
-        if [ $? -eq 0 ]; then
-            log_success "Download completed successfully!"
-            # 下载后重新探测路径 (ModelScope 通常下载到 opendatalab/... 下)
-            if [ -d "$MINERU_DIR/opendatalab/PDF-Extract-Kit-1.0/models" ]; then
-                FINAL_MODEL_PATH="$MINERU_DIR/opendatalab/PDF-Extract-Kit-1.0/models"
-            else
-                # 暴力搜索 best.pt 重新定位
-                FOUND=$(find "$MINERU_DIR" -name "best.pt" | grep "doclayout_yolo" | head -n 1)
-                if [ -n "$FOUND" ]; then
-                    # 回退到 models 目录
-                    FINAL_MODEL_PATH=$(dirname $(dirname $(dirname "$FOUND")))
-                fi
-            fi
-        else
-            log_error "Auto-download failed. Please check network or download manually."
-            # 失败后防止 Crash，指向根目录
-            FINAL_MODEL_PATH="$MINERU_DIR"
-        fi
+    # 检查模型目录是否存在
+    if [ ! -d "$MODEL_DIR" ]; then
+        log_warning "MinerU model directory not found at $MODEL_DIR. Creating empty directory..."
+        mkdir -p "$MODEL_DIR"
     else
-        log_info "Models exist. Skipping download."
+        log_info "MinerU models found: $(ls $MODEL_DIR | tr '\n' ' ')"
     fi
 
-    # ---------------------------------------------------------
-    # C. 生成配置文件 magic-pdf.json
-    # ---------------------------------------------------------
-    if [ -z "$FINAL_MODEL_PATH" ]; then FINAL_MODEL_PATH="$MINERU_DIR"; fi
-    
-    log_info "Generating MinerU configuration pointing to: $FINAL_MODEL_PATH"
-
+    # 生成 magic-pdf.json 到用户主目录 (/root)
+    # 这是 MinerU 识别本地模型的唯一方式
     cat > /root/magic-pdf.json <<EOF
 {
-  "models-dir": "${FINAL_MODEL_PATH}",
+  "models-dir": "${MODEL_DIR}",
   "device-mode": "cuda",
   "table-config": {
     "model": "TableMaster",
@@ -170,24 +124,48 @@ except Exception as e:
   }
 }
 EOF
+    # 为了兼容性，同时也生成 mineru.json (新版可能用这个名字)
     cp /root/magic-pdf.json /root/mineru.json
-    chmod 644 /root/magic-pdf.json
+
+    log_success "MinerU configuration generated at /root/magic-pdf.json pointing to ${MODEL_DIR}"
+}
+
+# ============================================================================
+# PaddleOCR Configuration Check (新增)
+# ============================================================================
+check_paddleocr_config() {
+    log_info "Checking PaddleOCR models..."
     
-    # ---------------------------------------------------------
-    # D. 检查 PaddleOCR 目录
-    # ---------------------------------------------------------
-    if [ ! -d "/app/models/paddleocr_vl" ]; then
-         mkdir -p /app/models/paddleocr_vl
+    # 检查默认缓存路径
+    if [ -d "/root/.paddleocr" ]; then
+        log_success "PaddleOCR cache directory found (/root/.paddleocr)"
+        # 简单列出 whl 目录下的模型
+        if [ -d "/root/.paddleocr/whl" ]; then
+             log_info "Available PaddleOCR models: $(ls /root/.paddleocr/whl)"
+        fi
+    else
+        log_warning "PaddleOCR cache directory NOT found! Models will be downloaded at runtime."
+    fi
+
+    # 检查大模型挂载 (vLLM用)
+    if [ -d "/app/models/paddleocr-vl-v1.5" ]; then
+        log_success "PaddleOCR-VL-1.5 (vLLM) model found"
+    else
+        log_warning "PaddleOCR-VL-1.5 model NOT found at /app/models/paddleocr-vl-v1.5"
     fi
 }
 
 # ============================================================================
-# 4. 数据库初始化
+# Database initialization
 # ============================================================================
 initialize_database() {
     log_info "Checking database..."
+
     DB_PATH=${DATABASE_PATH:-/app/data/db/mineru_tianshu.db}
+    
+    # 确保数据库目录存在
     mkdir -p $(dirname "$DB_PATH")
+
     if [ -f "$DB_PATH" ]; then
         log_success "Database exists: $DB_PATH"
     else
@@ -200,10 +178,20 @@ initialize_database() {
 # ============================================================================
 check_gpu() {
     log_info "Checking GPU availability..."
+
+    # Check PyTorch
     if python -c "import torch; print(torch.cuda.is_available())" | grep -q "True"; then
-        log_success "PyTorch CUDA detected"
+        GPU_NAME=$(python -c "import torch; print(torch.cuda.get_device_name(0))")
+        log_success "PyTorch CUDA detected: $GPU_NAME"
     else
         log_warning "PyTorch CUDA NOT detected!"
+    fi
+
+    # Check PaddlePaddle
+    if python -c "import paddle; print(paddle.device.is_compiled_with_cuda())" | grep -q "True"; then
+        log_success "PaddlePaddle CUDA detected"
+    else
+        log_warning "PaddlePaddle CUDA NOT detected!"
     fi
 }
 
@@ -212,36 +200,49 @@ check_gpu() {
 # ============================================================================
 main() {
     log_info "=========================================="
-    log_info "Tianshu Starting (Smart Model Mode)..."
+    log_info "Tianshu Starting (RTX 5090 Optimized)..."
     log_info "=========================================="
 
+    # First determine service type
     SERVICE_TYPE=${1:-api}
 
+    # Run checks (pass service type)
     check_environment "$SERVICE_TYPE"
     initialize_directories
     initialize_database
     
-    # ✅ 执行智能模型管理 (关键步骤)
-    manage_models
+    # ✅ 生成 MinerU 配置
+    generate_mineru_config
+    
+    # ✅ 检查 PaddleOCR 配置
+    check_paddleocr_config
 
+    # Execute different checks based on service type
     if [ "$SERVICE_TYPE" = "worker" ]; then
         log_info "Startup type: LitServe Worker"
         check_gpu
-        shift 
+        shift  # Remove first argument (service type)
     elif [ "$SERVICE_TYPE" = "mcp" ]; then
         log_info "Startup type: MCP Server"
-        shift
+        shift  # Remove first argument (service type)
     else
         log_info "Startup type: API Server"
-        if [ "$1" = "api" ]; then shift; fi
+        # If first argument is "api", also need to remove it
+        if [ "$1" = "api" ]; then
+            shift
+        fi
     fi
 
     log_info "=========================================="
     log_success "Initialization complete, starting service..."
     log_info "=========================================="
 
+    # Execute the passed command
     exec "$@"
 }
 
+# Catch signals for graceful shutdown
 trap 'log_warning "Received termination signal, shutting down..."; exit 0' SIGTERM SIGINT
+
+# Execute main function
 main "$@"

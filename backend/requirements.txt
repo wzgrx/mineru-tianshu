@@ -27,8 +27,8 @@
 # MinerU Core (Dockerfile Step 4 使用 --no-deps 强制安装，防止降级 Torch)
 # mineru[core]>=2.7.6
 
-# PaddleOCR (Dockerfile Step 5 安装)
-# paddleocr[doc-parser]
+# PaddleOCR (必须锁定版本以支持 pipeline_version 参数，支持 VL 1.5)
+paddleocr>=2.9.1
 
 # Transformers (Dockerfile Step 5 锁定版本 4.57.6)
 # transformers==4.57.6

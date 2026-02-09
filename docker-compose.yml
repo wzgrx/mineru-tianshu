@@ -4,7 +4,7 @@
 # 更新说明:
 # 1. 已添加 network: host 解决构建时的网络超时/502问题
 # 2. 移除了 cache_from 以强制本地构建
-# 3. 优化了 PaddleOCR 模型挂载路径 (关键修复)
+# 3. 优化了 PaddleOCR 模型挂载路径 (关键修复：挂载到 /root/.paddleocr)
 
 name: tianshu
 

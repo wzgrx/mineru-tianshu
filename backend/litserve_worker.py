@@ -1,6 +1,6 @@
 """
 MinerU Tianshu - LitServe Worker
-天枢 LitServe Worker (Fixed VLLM & Memory Optimization)
+天枢 LitServe Worker (Fixed VLLM, Memory Optimization & Auto-Cleaner)
 """
 
 import os
@@ -51,6 +51,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from task_db import TaskDB
 from output_normalizer import normalize_output
+
+# ✅ [新增] 导入清理模块
+try:
+    from cron_cleaner import cleanup_directory, UPLOAD_DIR, OUTPUT_DIR
+except ImportError:
+    # Fallback default dirs if import fails
+    UPLOAD_DIR = "/app/data/uploads"
+    OUTPUT_DIR = "/app/data/output"
+    def cleanup_directory(d): pass
+    logger.warning("⚠️ cron_cleaner module not found, auto-cleaning disabled.")
 
 # ============================================================================
 # 2. 引擎可用性检测
@@ -153,6 +163,24 @@ class MinerUWorkerAPI(ls.LitAPI):
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.task_db = TaskDB(db_path)
         
+        # ✅ [新增] 启动自动清理线程 (每小时运行一次)
+        def run_cleaner_scheduler():
+            # 初始等待 1 分钟后运行一次，然后每小时运行
+            time.sleep(60) 
+            while True:
+                try:
+                    logger.info("🧹 Auto-cleaner triggered...")
+                    cleanup_directory(UPLOAD_DIR)
+                    cleanup_directory(OUTPUT_DIR)
+                except Exception as e:
+                    logger.error(f"Cleaner failed: {e}")
+                time.sleep(3600) # 1小时
+
+        if self.enable_worker_loop:
+            cleaner_thread = threading.Thread(target=run_cleaner_scheduler, daemon=True)
+            cleaner_thread.start()
+            logger.info("🕒 Auto-cleaner background thread started")
+
         # 引擎实例缓存
         self.markitdown = MarkItDown() if MARKITDOWN_AVAILABLE else None
         self.mineru_pipeline_engine = None

@@ -131,6 +131,11 @@ class MinerUWorkerAPI(ls.LitAPI):
             my_global_index = self._global_worker_counter.value
             self._global_worker_counter.value += 1
         
+        # =========================================================
+        # ✅ [关键修复] 赋值 worker_id，解决 Loop Error
+        # =========================================================
+        self.worker_id = my_global_index
+        
         logger.info(f"🔢 Worker #{my_global_index} setup on {device}")
 
         # 设置 CUDA_VISIBLE_DEVICES

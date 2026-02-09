@@ -43,19 +43,19 @@ FROM base AS dependencies
 WORKDIR /tmp
 COPY backend/requirements.txt /tmp/requirements.txt
 
-# Step 1: 安装 vLLM (RTX 5090 推荐 0.6.0+)
+# Step 1: 安装 vLLM (RTX 5090 推荐 >=0.15.1+)
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing vLLM..." && \
-    pip install "vllm>=0.6.0" \
+    pip install "vllm>=0.15.1" \
     --retries 10 --timeout 120 \
-    --extra-index-url https://download.pytorch.org/whl/cu124 \
+    --extra-index-url https://download.pytorch.org/whl/cu130 \
     --break-system-packages
 
 # Step 2: 安装 PaddlePaddle
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing PaddlePaddle..." && \
-    (pip install paddlepaddle-gpu==3.0.0b1 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/ --break-system-packages || \
-     pip install --pre paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/nightly/cu123/ --break-system-packages)
+    (pip install paddlepaddle-gpu==3.3.0 -i https://www.paddlepaddle.org.cn/packages/stable/cu130/ --break-system-packages || \
+     pip install --pre paddlepaddle-gpu -i https://www.paddlepaddle.org.cn/packages/nightly/cu130/ --break-system-packages)
 
 # Step 3: 安装常规依赖 (此时包含 doclayout-yolo==0.0.4)
 RUN --mount=type=cache,target=/root/.cache/pip \

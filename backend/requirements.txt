@@ -1,121 +1,77 @@
-# MinerU-Server Backend Unified Requirements
+# MinerU-Server Backend Unified Requirements (High Version / Unlocked)
 # ============================================================================
-# 适配 RTX 5090 + CUDA 13.0.2 + Python 3.12 的专用依赖表
-#
-# ⚠️ 警告：不要直接运行 pip install -r requirements.txt
-# 核心深度学习框架（Torch, Paddle, vLLM, MinerU）已由 Dockerfile 分步处理
-# 此文件仅包含 Web 服务、数据处理等“无害”依赖
+# 适配 RTX 5090 + CUDA 13.0.2 + Python 3.12
 # ============================================================================
 
-# ============================================================================
-# Core Frameworks (已在 Dockerfile 中独立安装，此处必须注释以防冲突)
-# ============================================================================
-# PyTorch (由 vLLM 自动引入或显式指定 CUDA 13 源安装)
+# PyTorch & Paddle & vLLM (由 Dockerfile 处理)
 # torch>=2.6.0
-# torchvision>=0.21.0
-# torchaudio>=2.6.0
-
-# PaddlePaddle (Dockerfile Step 2 安装)
 # paddlepaddle-gpu==3.3.0
+# vLLM (Dockerfile Step 1 安装)
 
-# vLLM (Dockerfile Step 1 安装，支持 RTX 5090)
-# vllm>=0.15.1
-
-# ============================================================================
-# OCR & Pipeline Engines (已在 Dockerfile 中处理)
-# ============================================================================
-# MinerU Core (Dockerfile Step 4 使用 --no-deps 强制安装，防止降级 Torch)
+# MinerU Core (Dockerfile Step 4 安装)
 # mineru[core]>=2.7.6
 
-# PaddleOCR (Dockerfile Step 5 安装)
-# paddleocr[doc-parser]
+paddleocr>=2.9.1
 
-# Transformers (Dockerfile Step 5 锁定版本 4.57.6)
-# transformers==4.57.6
-# tokenizers>=0.21.0
+# 图像处理
+PyMuPDF>=1.24.0
+Pillow>=11.0.0
+img2pdf>=0.5.0
+pikepdf>=9.0.0
 
-# ============================================================================
-# Image Processing (Python 3.12 兼容)
-# ============================================================================
-PyMuPDF>=1.24.0   # PDF 解析核心
-Pillow>=11.0.0    # Python 3.12 必需
-img2pdf>=0.5.0    # 图片转 PDF
-pikepdf>=9.0.0    # PDF 快速处理 (拆分/合并)
+# ❌ [已解锁] 删除旧版本限制，允许安装最新版以适配 doclayout
+# albumentations>=1.3.1,<1.4.0
+# albucore>=0.0.13,<0.0.17
 
-# 图像增强 (MinerU 依赖)
-# 注意：albumentations 版本需与 Dockerfile Step 5 保持一致
-albumentations>=1.3.1,<1.4.0
-albucore>=0.0.13,<0.0.17
-
-# 绘图依赖
-kiwisolver>=1.4.5  # Python 3.12 必需
+# 绘图
+kiwisolver>=1.4.5
 matplotlib>=3.9.0
 contourpy>=1.3.0
 
-# MinerU 依赖的辅助库
-# ✅ 关键修复：使用 0.0.2b1 版本，它是目前唯一兼容旧版 albumentations 且存在的版本
-doclayout-yolo==0.0.2b1
+# ✅ [已放回] 让它自动拉取最新的 albumentations
+doclayout-yolo>=0.0.4
 ftfy>=6.1.0
 
-# ============================================================================
-# Audio & Video Processing
-# ============================================================================
-# SenseVoice / FunASR 依赖
+# 音视频
 funasr>=1.2.7
 ffmpeg-python
 soundfile>=0.12.0
-
-# 视频关键帧提取
 opencv-python>=4.10.0
 imagehash>=4.3.0
-numpy>=1.26.0,<2.0.0  # 推荐锁定 1.x 避免 2.0 兼容性问题
+numpy>=1.26.0,<2.0.0
 
-# ============================================================================
-# Domain Specific Engines
-# ============================================================================
-biopython>=1.80       # 生物信息格式支持
-ultralytics>=8.3.0    # YOLO11 (去水印)
-simple-lama-inpainting>=0.1.0 # LaMa (图像修复)
+# 领域工具
+biopython>=1.80
+ultralytics>=8.3.0
+simple-lama-inpainting>=0.1.0
 huggingface-hub>=0.20.0
-modelscope>=1.18.0    # 国内模型下载加速
+modelscope>=1.18.0
 
-# ============================================================================
-# Web Server & API
-# ============================================================================
+# Web 服务
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 python-multipart>=0.0.9
-litserve==0.2.16      # GPU Worker 框架
-aiohttp==3.11.11      # 异步 HTTP
+litserve==0.2.16
+aiohttp==3.11.11
 
-# ============================================================================
-# Authentication & Storage
-# ============================================================================
-pyjwt>=2.9.0          # JWT 认证
-authlib>=1.3.0        # OIDC/SSO
-python3-saml>=1.16.0  # SAML
+# 认证与存储
+pyjwt>=2.9.0
+authlib>=1.3.0
+python3-saml>=1.16.0
 pydantic[email]==2.10.5
 pydantic-core==2.27.2
 email-validator>=2.2.0
-
-# 对象存储 & 队列
 minio>=7.2.0
-redis>=5.0.0          # Redis 队列支持
+redis>=5.0.0
 
-# ============================================================================
-# Utilities
-# ============================================================================
-loguru>=0.7.0         # 日志
-python-dotenv>=1.0.0  # 环境变量
-markitdown[all]>=0.1.3 # Office 文档解析
-
-# MCP 协议支持
+# 工具
+loguru>=0.7.0
+python-dotenv>=1.0.0
+markitdown[all]>=0.1.3
 mcp==1.1.2
 sse-starlette==2.2.1
 jsonschema>=4.20.0
 jsonschema-specifications>=2023.12.1
-
-# Python 3.12 构建工具
 typing-extensions>=4.12.0
 setuptools>=75.0.0
 lxml>=5.3.0

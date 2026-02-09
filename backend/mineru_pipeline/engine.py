@@ -1,208 +1,250 @@
-#!/bin/bash
-# Tianshu - Docker Entrypoint Script
-# Container startup script for initialization and health checks
+"""
+MinerU Pipeline Engine
+单例模式，每个进程只加载一次模型
+"""
 
-set -e
+import os
+import json
+import shutil
+from pathlib import Path
+from typing import Optional, Dict, Any
+from threading import Lock
+from loguru import logger
+import img2pdf
 
-# Color output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
 
-# Log functions
-log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
+class MinerUPipelineEngine:
+    """
+    MinerU Pipeline 引擎
 
-log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
+    特性：
+    - 单例模式
+    - 封装 MinerU 的 do_parse 调用
+    - 延迟加载（避免过早初始化模型）
+    - 支持 PDF 和图片（自动转换）
+    - 自动处理输出路径和结果解析
+    - 线程安全
+    """
 
-log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
+    _instance: Optional["MinerUPipelineEngine"] = None
+    _lock = Lock()
+    _pipeline = None  # 这里的 pipeline 实际上是 do_parse 函数
+    _initialized = False
 
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
 
-# ============================================================================
-# Environment check
-# ============================================================================
-check_environment() {
-    local service_type=$1
+    def __init__(self, device: str = "cuda:0"):
+        """
+        初始化引擎
 
-    log_info "Checking environment configuration..."
+        Args:
+            device: 设备 (cuda:0, cuda:1 等)
+        """
+        if self._initialized:
+            return
 
-    # Check Python version
-    PYTHON_VERSION=$(python --version 2>&1 | awk '{print $2}')
-    log_info "Python version: $PYTHON_VERSION"
+        with self._lock:
+            if self._initialized:
+                return
 
-    # Check CUDA
-    if command -v nvidia-smi &> /dev/null; then
-        log_success "NVIDIA GPU detected"
-        nvidia-smi --query-gpu=gpu_name,driver_version,memory.total --format=csv,noheader
-    else
-        log_warning "NVIDIA GPU or driver not detected"
-    fi
+            self.device = device
+            # 简单的设备ID提取
+            if "cuda:" in device:
+                self.gpu_id = device.split(":")[-1]
+            else:
+                self.gpu_id = "0"
+            
+            # 设置环境变量以确保 MinerU 使用正确的 GPU
+            os.environ["CUDA_VISIBLE_DEVICES"] = self.gpu_id
 
-    # Check necessary environment variables (only API Server needs JWT)
-    if [ "$service_type" != "worker" ] && [ "$service_type" != "mcp" ]; then
-        if [ -z "$JWT_SECRET_KEY" ]; then
-            log_error "JWT_SECRET_KEY is not set! Please configure in .env"
-            exit 1
-        fi
+            self._initialized = True
+            logger.info(f"🔧 MinerU Pipeline Engine initialized on {device}")
 
-        if [ "$JWT_SECRET_KEY" = "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_IN_PRODUCTION" ]; then
-            log_warning "JWT_SECRET_KEY is using default value, must be changed for production!"
-        fi
-    fi
-}
+    def _load_pipeline(self):
+        """延迟加载 MinerU 管道 (do_parse)"""
+        if self._pipeline is not None:
+            return self._pipeline
 
-# ============================================================================
-# Directory initialization
-# ============================================================================
-initialize_directories() {
-    log_info "Initializing directory structure..."
+        with self._lock:
+            if self._pipeline is not None:
+                return self._pipeline
 
-    mkdir -p /app/models
-    mkdir -p /app/data/uploads
-    mkdir -p /app/data/output
-    mkdir -p /app/logs
+            logger.info("=" * 60)
+            logger.info("📥 Loading MinerU Pipeline (do_parse)...")
+            logger.info("=" * 60)
 
-    log_success "Directory structure initialized"
-}
+            try:
+                # 延迟导入 do_parse，避免过早初始化模型
+                from mineru.cli.common import do_parse
 
-# ============================================================================
-# MinerU Configuration Generator (关键新增!)
-# ============================================================================
-generate_mineru_config() {
-    log_info "Generating MinerU configuration (magic-pdf.json)..."
+                self._pipeline = do_parse
 
-    # 这里的路径必须与 docker-compose.yml 中的挂载路径一致
-    # 我们挂载的是: - /mnt/d/.../mineru:/app/models/mineru
-    MODEL_DIR="/app/models/mineru"
+                logger.info("=" * 60)
+                logger.info("✅ MinerU Pipeline loaded successfully!")
+                logger.info("=" * 60)
 
-    # 检查模型目录是否存在
-    if [ ! -d "$MODEL_DIR" ]; then
-        log_warning "MinerU model directory not found at $MODEL_DIR. Creating empty directory..."
-        mkdir -p "$MODEL_DIR"
-    fi
+                return self._pipeline
 
-    # 生成 magic-pdf.json 到用户主目录 (/root)
-    # 这是 MinerU 识别本地模型的唯一方式
-    cat > /root/magic-pdf.json <<EOF
-{
-  "models-dir": "${MODEL_DIR}",
-  "device-mode": "cuda",
-  "table-config": {
-    "model": "TableMaster",
-    "is_table_recog_enable": true,
-    "max_time": 400
-  },
-  "layout-config": {
-    "model": "doclayout_yolo"
-  },
-  "formula-config": {
-    "mfd_model": "yolo_v8_mfd",
-    "mfr_model": "unimernet_small",
-    "enable": true
-  }
-}
-EOF
-    # 为了兼容性，同时也生成 mineru.json (新版可能用这个名字)
-    cp /root/magic-pdf.json /root/mineru.json
+            except ImportError:
+                logger.error("❌ Failed to import mineru.cli.common.do_parse. Is mineru installed?")
+                raise
+            except Exception as e:
+                logger.error(f"❌ Error loading MinerU pipeline: {e}")
+                raise
 
-    log_success "MinerU configuration generated at /root/magic-pdf.json pointing to ${MODEL_DIR}"
-}
+    def cleanup(self):
+        """清理显存"""
+        try:
+            from mineru.utils.model_utils import clean_memory
+            clean_memory()
+            logger.debug("🧹 MinerU: Memory cleanup completed")
+        except ImportError:
+            pass
+        except Exception as e:
+            logger.debug(f"Memory cleanup warning: {e}")
 
-# ============================================================================
-# Database initialization
-# ============================================================================
-initialize_database() {
-    log_info "Checking database..."
+    def parse(self, file_path: str, output_path: str, options: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        处理文件
 
-    DB_PATH=${DATABASE_PATH:-/app/data/db/mineru_tianshu.db}
-    
-    # 确保数据库目录存在
-    mkdir -p $(dirname "$DB_PATH")
+        Args:
+            file_path: 输入文件路径
+            output_path: 输出目录路径 (任务根目录)
+            options: 处理选项
 
-    if [ -f "$DB_PATH" ]; then
-        log_success "Database exists: $DB_PATH"
-    else
-        log_info "First run, database will be automatically created"
-    fi
-}
+        Returns:
+            包含结果的字典
+        """
+        options = options or {}
+        output_dir = Path(output_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
 
-# ============================================================================
-# GPU check
-# ============================================================================
-check_gpu() {
-    log_info "Checking GPU availability..."
+        file_path_obj = Path(file_path)
+        file_stem = file_path_obj.stem
+        file_ext = file_path_obj.suffix.lower()
 
-    # Check PyTorch
-    if python -c "import torch; print(torch.cuda.is_available())" | grep -q "True"; then
-        GPU_NAME=$(python -c "import torch; print(torch.cuda.get_device_name(0))")
-        log_success "PyTorch CUDA detected: $GPU_NAME"
-    else
-        log_warning "PyTorch CUDA NOT detected!"
-    fi
+        # 加载管道
+        do_parse_func = self._load_pipeline()
 
-    # Check PaddlePaddle
-    if python -c "import paddle; print(paddle.device.is_compiled_with_cuda())" | grep -q "True"; then
-        log_success "PaddlePaddle CUDA detected"
-    else
-        log_warning "PaddlePaddle CUDA NOT detected!"
-    fi
-}
+        temp_pdf_path = None
 
-# ============================================================================
-# Main entry point
-# ============================================================================
-main() {
-    log_info "=========================================="
-    log_info "Tianshu Starting (RTX 5090 Optimized)..."
-    log_info "=========================================="
+        try:
+            # 读取文件为字节
+            with open(file_path, "rb") as f:
+                file_bytes = f.read()
 
-    # First determine service type
-    SERVICE_TYPE=${1:-api}
+            # 处理图片输入: 转 PDF
+            if file_ext in [".png", ".jpg", ".jpeg", ".bmp", ".tiff"]:
+                logger.info(f"🖼️ Converting image to PDF: {file_path_obj.name}")
+                try:
+                    pdf_bytes = img2pdf.convert(file_bytes)
+                    # 临时保存这个转换后的 PDF，因为 MinerU 内部有些逻辑依赖文件名
+                    # 为了避免并发冲突，使用原始文件名但加 .pdf 后缀
+                    temp_pdf_name = f"{file_stem}.pdf"
+                    # 这里我们不实际写入磁盘再读，直接传递 bytes 给 do_parse 即可
+                    # 但为了逻辑统一，变量名保持一致
+                    file_name_for_mineru = temp_pdf_name
+                except Exception as e:
+                    logger.error(f"❌ Image conversion failed: {e}")
+                    raise ValueError(f"Failed to convert image to PDF: {e}")
+            else:
+                # PDF 文件
+                pdf_bytes = file_bytes
+                file_name_for_mineru = file_path_obj.name
 
-    # Run checks (pass service type)
-    check_environment "$SERVICE_TYPE"
-    initialize_directories
-    initialize_database
-    
-    # ✅ 必须在启动前生成配置文件，否则 MinerU 会重新下载模型
-    generate_mineru_config
+            # 获取语言设置 (MinerU 仅支持 'ch' 或 'en')
+            lang = options.get("lang", "ch")
+            if lang not in ["ch", "en"]:
+                lang = "ch"
 
-    # Execute different checks based on service type
-    if [ "$SERVICE_TYPE" = "worker" ]; then
-        log_info "Startup type: LitServe Worker"
-        check_gpu
-        shift  # Remove first argument (service type)
-    elif [ "$SERVICE_TYPE" = "mcp" ]; then
-        log_info "Startup type: MCP Server"
-        shift  # Remove first argument (service type)
-    else
-        log_info "Startup type: API Server"
-        # If first argument is "api", also need to remove it
-        if [ "$1" = "api" ]; then
-            shift
-        fi
-    fi
+            logger.info(f"🚀 Running MinerU do_parse on: {file_name_for_mineru} (Lang: {lang})")
 
-    log_info "=========================================="
-    log_success "Initialization complete, starting service..."
-    log_info "=========================================="
+            # 调用 MinerU (do_parse)
+            # 注意: output_dir 必须是一个存在的目录
+            do_parse_func(
+                pdf_file_names=[file_name_for_mineru],  # 文件名列表
+                pdf_bytes_list=[pdf_bytes],       # 文件字节列表
+                p_lang_list=[lang],               # 语言列表
+                output_dir=str(output_dir),       # 输出目录
+                output_format="md_json",          # 强制输出 md 和 json
+                end_page_id=options.get("end_page_id", None), # 默认处理所有页
+                layout_mode=options.get("layout_mode", True),
+                formula_enable=options.get("formula_enable", True),
+                table_enable=options.get("table_enable", True),
+            )
 
-    # Execute the passed command
-    exec "$@"
-}
+            # --- 结果解析 ---
+            # MinerU 通常会在 output_dir 下创建一个与文件名(不含后缀)同名的子目录
+            # 例如输入 a.pdf，输出在 output_dir/a/auto/a.md
+            
+            # 使用 file_stem (去除后缀的文件名) 来定位子目录
+            # 注意: 如果是图片转 PDF，file_stem 应该也是原始图片的文件名(不含后缀)
+            expected_subdir = output_dir / Path(file_name_for_mineru).stem
+            
+            # 查找 Markdown 文件
+            # 优先在 expected_subdir 中查找，找不到则全目录搜索
+            md_files = list(expected_subdir.rglob("*.md"))
+            if not md_files:
+                md_files = list(output_dir.rglob("*.md"))
 
-# Catch signals for graceful shutdown
-trap 'log_warning "Received termination signal, shutting down..."; exit 0' SIGTERM SIGINT
+            if md_files:
+                # 排序，取最短路径的 md 文件（通常是主文件，而非readme）
+                md_files.sort(key=lambda p: len(str(p)))
+                md_file = md_files[0]
+                
+                logger.info(f"✅ Found MinerU output: {md_file}")
+                content = md_file.read_text(encoding="utf-8")
 
-# Execute main function
-main "$@"
+                # 实际的结果目录 (包含 images, layout.json 等)
+                actual_result_dir = md_file.parent
+
+                # 查找 content_list.json
+                json_files = list(actual_result_dir.glob("*_content_list.json"))
+                
+                result = {
+                    "markdown": content,
+                    "result_path": str(actual_result_dir), # 返回包含资源的目录
+                }
+
+                if json_files:
+                    json_file = json_files[0]
+                    try:
+                        with open(json_file, "r", encoding="utf-8") as f:
+                            result["json_content"] = json.load(f)
+                            result["json_path"] = str(json_file)
+                    except Exception as e:
+                        logger.warning(f"Failed to load JSON: {e}")
+
+                return result
+
+            else:
+                # 失败处理：打印目录结构以便调试
+                logger.error(f"❌ MinerU output not found in {output_dir}")
+                logger.error("Directory content:")
+                for f in output_dir.rglob("*"):
+                    logger.error(f"  - {f.relative_to(output_dir)}")
+                
+                raise FileNotFoundError("MinerU failed to generate markdown output")
+
+        except Exception as e:
+            logger.error(f"MinerU Processing Failed: {e}")
+            raise
+
+        finally:
+            self.cleanup()
+
+
+# 全局单例
+_engine = None
+
+def get_engine() -> MinerUPipelineEngine:
+    """获取全局引擎实例"""
+    global _engine
+    if _engine is None:
+        _engine = MinerUPipelineEngine()
+    return _engine

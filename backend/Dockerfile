@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
     git wget curl vim build-essential \
     libgomp1 libglib2.0-0 libsm6 libxext6 libxrender-dev libgl1 \
     libgstreamer1.0-0 ffmpeg \
+    libmagic1 \
     antiword pandoc \
     libreoffice libreoffice-writer libreoffice-calc libreoffice-impress \
     fonts-noto-cjk fonts-noto-cjk-extra fonts-wqy-zenhei fonts-wqy-microhei \
@@ -60,11 +61,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     --break-system-packages
 
 # Step 3: 安装常规依赖
-# ⚠️ 注意：requirements.txt 中的 doclayout-yolo 和 albumentations 可能会被此步安装，
-# 但我们在 Step 5 会强制覆盖以确保版本正确
+# ✅ [修复] grep 仅过滤 paddlepaddle 框架，保留 paddleocr
+# 原来的 "grep -vE 'torch|paddle|vllm'" 会把 paddleocr 也删掉，导致报错
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Installing dependencies..." && \
-    cat /tmp/requirements.txt | grep -vE "torch|paddle|vllm" > /tmp/cleaned_requirements.txt && \
+    cat /tmp/requirements.txt | grep -vE "torch|paddlepaddle|vllm" > /tmp/cleaned_requirements.txt && \
     pip install -r /tmp/cleaned_requirements.txt \
     --retries 10 --timeout 120 \
     --break-system-packages
@@ -79,15 +80,17 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Step 5: 强制“嫁接”正确的依赖版本 (Conflict-Free Fix)
 # ✅ [关键修复] 使用 doclayout-yolo 0.0.4 配合 albumentations 2.x
-# 不再强制安装旧版 0.0.2b1 和 albumentations<1.4.0
+# 同时卸载可能被自动安装的 GUI 版 opencv-python，只保留 headless 版
 RUN --mount=type=cache,target=/root/.cache/pip \
     echo "Patching dependencies for MinerU/YOLO compat..." && \
     pip install doclayout-yolo==0.0.4 --no-deps --break-system-packages && \
-    pip install "albumentations>=2.0.8" "albucore>=0.0.20" --break-system-packages
+    pip install "albumentations>=2.0.8" "albucore>=0.0.20" --break-system-packages && \
+    pip uninstall -y opencv-python || true
 
-# Step 6: 验证环境 (原补齐工具步骤已移除，因为 requirements.txt 已包含所需依赖)
+# Step 6: 验证环境
 RUN python -c "import sys; print('Python:', sys.version)" && \
     python -c "import torch; print('✅ PyTorch:', torch.__version__)" && \
+    python -c "import paddleocr; print('✅ PaddleOCR:', paddleocr.__version__)" && \
     python -c "import doclayout_yolo; print('✅ DocLayout-YOLO:', doclayout_yolo.__version__)"
 
 # ============================================================================
